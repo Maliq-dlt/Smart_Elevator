@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { BuildingVisualizer } from './components/BuildingVisualizer';
 import { Dashboard } from './components/Dashboard';
+import { LandingPage } from './components/LandingPage';
 import { 
   LiftState, Passenger, BuildingState, SystemMode, LogEntry, SimulationStats, MachineComponent 
 } from './types';
@@ -8,11 +9,11 @@ import {
   FLOORS, LIFT_CAPACITY_KG, LIFT_CAPACITY_PEOPLE, 
   MOCK_NAMES, TICK_RATE, GRAVITY, LIFT_EMPTY_MASS, FLOOR_HEIGHT_METERS, LIFT_MAX_SPEED_MPS, INITIAL_COMPONENTS
 } from './constants';
-import { Play, Pause, AlertTriangle, UserPlus, FileText, Activity, Settings, ChevronRight, RotateCcw, BarChart3, Zap } from 'lucide-react';
+import { Play, Pause, AlertTriangle, UserPlus, FileText, Activity, Settings, ChevronRight, RotateCcw, BarChart3, Zap, Layers, Scale, ArrowUpRight } from 'lucide-react';
 import { generateSystemNarrative, generateScenarioAnalysis } from './services/geminiService';
 
 // --- Types for Setup ---
-type SetupStep = 'LIFTS' | 'PASSENGERS' | 'REVIEW' | 'RUNNING';
+type SetupStep = 'LANDING' | 'LIFTS' | 'PASSENGERS' | 'REVIEW' | 'RUNNING';
 
 interface PassengerConfig {
   id: string;
@@ -39,7 +40,7 @@ const initialLiftState = (id: 'A' | 'B', startFloor: number): LiftState => ({
 
 export default function App() {
   // --- Setup State ---
-  const [step, setStep] = useState<SetupStep>('LIFTS');
+  const [step, setStep] = useState<SetupStep>('LANDING');
   const [configLiftA, setConfigLiftA] = useState(1);
   const [configLiftB, setConfigLiftB] = useState(1);
   const [passengerCount, setPassengerCount] = useState(3);
@@ -63,7 +64,7 @@ export default function App() {
       floorVisits: { 1: 0, 2: 0, 3: 0 },
       peakPassengers: 0,
       minPassengers: 0,
-      energyHistory: Array(20).fill(0)
+      energyHistory: Array(25).fill(0)
   });
 
   const [systemMode, setSystemMode] = useState<SystemMode>('NORMAL');
@@ -109,7 +110,7 @@ export default function App() {
         floorVisits: { 1: 0, 2: 0, 3: 0 },
         peakPassengers: 0,
         minPassengers: 0,
-        energyHistory: Array(20).fill(0)
+        energyHistory: Array(25).fill(0)
     });
     setLogs([]);
     setSimTime(0);
@@ -176,14 +177,17 @@ export default function App() {
     let nextStats = { ...stats };
     
     // Update Energy History Graph (Sample every 1 second roughly)
-    if (Math.floor(simTime * 10) % 20 === 0) {
+    if (Math.floor(simTime * 10) % 10 === 0) { // Updated to 10 ticks (0.5s) for faster graph updates
         // Calculate instantaneous energy usage from both lifts (approximated for visual)
-        // If moving, usage is high. If idle, low.
         let instantaneousJ = 0;
-        if (liftA.status === 'MOVING') instantaneousJ += 3000;
-        if (liftB.status === 'MOVING') instantaneousJ += 3000;
-        if (liftA.status !== 'IDLE') instantaneousJ += 500;
-        if (liftB.status !== 'IDLE') instantaneousJ += 500;
+        // Moving consumes more, accelerating consumes peak
+        if (liftA.status === 'MOVING') instantaneousJ += 2500 + Math.random() * 500;
+        if (liftB.status === 'MOVING') instantaneousJ += 2500 + Math.random() * 500;
+        // Door ops consume little
+        if (liftA.status.includes('DOOR')) instantaneousJ += 300;
+        if (liftB.status.includes('DOOR')) instantaneousJ += 300;
+        // Idle baseline
+        instantaneousJ += 200;
         
         nextStats.energyHistory = [...nextStats.energyHistory.slice(1), instantaneousJ];
     }
@@ -230,21 +234,21 @@ export default function App() {
       
       // Motor wear when moving
       if (lift.status === 'MOVING') {
-          comps[0].health -= 0.02; // Motor
+          comps[0].health -= 0.05; // Motor (Accelerated for demo)
           comps[0].cycles += 1;
-          comps[4].health -= 0.01; // Cables
+          comps[4].health -= 0.02; // Cables
           comps[4].cycles += 1;
       }
       
       // Door wear
       if (lift.status === 'DOOR_OPENING' || lift.status === 'DOOR_CLOSING') {
-          comps[1].health -= 0.05; // Door
+          comps[1].health -= 0.1; // Door (Accelerated)
           comps[1].cycles += 1;
       }
 
       // Brake wear on stop
       if (lift.status === 'IDLE' && lift.totalWeight > 0) {
-          comps[2].health -= 0.001;
+          comps[2].health -= 0.01;
       }
 
       // Check Status
@@ -274,7 +278,7 @@ export default function App() {
       nextLift.components = updateComponentHealth(nextLift);
       if (nextLift.components.some(c => c.status === 'CRITICAL' && c.health < 10)) {
           // Failure simulation logic could go here (e.g., force halt)
-          if (Math.random() > 0.99) addLog(`PERINGATAN KRITIS: Komponen pada Lift ${nextLift.id} perlu perbaikan segera!`, 'ERROR');
+          if (Math.random() > 0.995) addLog(`PERINGATAN KRITIS: Komponen pada Lift ${nextLift.id} perlu perbaikan segera!`, 'ERROR');
       }
 
       // A. Overload Check
@@ -525,48 +529,67 @@ export default function App() {
       setAnalysisReport(report);
   };
 
+  if (step === 'LANDING') {
+    return <LandingPage onStart={() => setStep('LIFTS')} />;
+  }
+
   // --- RENDER ---
   const renderSetupWizard = () => {
     return (
-      <div className="max-w-3xl mx-auto mt-10 p-6 bg-slate-900 border border-slate-700 rounded-lg shadow-2xl font-mono">
-        <h2 className="text-2xl font-bold text-center text-blue-400 mb-8 tracking-widest uppercase">
-          Konfigurasi Sistem
-        </h2>
+      <div className="max-w-4xl mx-auto mt-10 p-6 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl font-sans">
+        <div className="flex justify-between items-center mb-8 pb-4 border-b border-slate-800">
+           <h2 className="text-2xl font-bold text-blue-400 tracking-tight flex items-center gap-2">
+             <Settings className="w-6 h-6" /> Konfigurasi Sistem
+           </h2>
+           {/* Clickable Logo for Quick Dashboard Access */}
+           <div 
+             onClick={startSimulation}
+             className="cursor-pointer hover:bg-slate-800 p-2 rounded-lg transition-colors group flex items-center gap-2 border border-transparent hover:border-slate-700"
+             title="Quick Start Simulation (Default Settings)"
+           >
+              <div className="w-8 h-8 bg-gradient-to-tr from-blue-500 to-indigo-600 rounded flex items-center justify-center shadow-lg group-hover:shadow-blue-500/30">
+                  <span className="font-mono text-white font-bold">E</span>
+              </div>
+              <span className="text-xs text-slate-500 group-hover:text-blue-400 font-bold uppercase tracking-wide">
+                  Quick Launch
+              </span>
+           </div>
+        </div>
 
         {step === 'LIFTS' && (
           <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4">
-            <div className="bg-slate-800 p-6 rounded border border-slate-600">
-                <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2"><Settings size={18}/> Posisi Awal Lift</h3>
+            <div className="bg-slate-800 p-6 rounded-xl border border-slate-700">
+                <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2"><ArrowUpRight size={18} className="text-blue-400"/> Posisi Awal Lift</h3>
                 <div className="grid grid-cols-2 gap-8">
                     <div>
-                        <label className="block text-slate-400 mb-2">Mulai Lift A</label>
-                        <select value={configLiftA} onChange={e => setConfigLiftA(Number(e.target.value))} className="w-full bg-slate-900 border border-slate-600 rounded p-3 text-lg">
+                        <label className="block text-slate-400 mb-2 text-sm font-medium">Mulai Lift A</label>
+                        <select value={configLiftA} onChange={e => setConfigLiftA(Number(e.target.value))} className="w-full bg-slate-900 border border-slate-600 rounded-lg p-3 text-lg focus:ring-2 focus:ring-blue-500 outline-none">
                             {FLOORS.map(f => <option key={f} value={f}>Lantai {f}</option>)}
                         </select>
                     </div>
                     <div>
-                        <label className="block text-slate-400 mb-2">Mulai Lift B</label>
-                        <select value={configLiftB} onChange={e => setConfigLiftB(Number(e.target.value))} className="w-full bg-slate-900 border border-slate-600 rounded p-3 text-lg">
+                        <label className="block text-slate-400 mb-2 text-sm font-medium">Mulai Lift B</label>
+                        <select value={configLiftB} onChange={e => setConfigLiftB(Number(e.target.value))} className="w-full bg-slate-900 border border-slate-600 rounded-lg p-3 text-lg focus:ring-2 focus:ring-blue-500 outline-none">
                             {FLOORS.map(f => <option key={f} value={f}>Lantai {f}</option>)}
                         </select>
                     </div>
                 </div>
             </div>
 
-            <div className="bg-slate-800 p-6 rounded border border-slate-600">
-                <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2"><UserPlus size={18}/> Jumlah Penumpang</h3>
-                <label className="block text-slate-400 mb-2">Berapa banyak penumpang dalam simulasi?</label>
+            <div className="bg-slate-800 p-6 rounded-xl border border-slate-700">
+                <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2"><UserPlus size={18} className="text-blue-400"/> Jumlah Penumpang</h3>
+                <label className="block text-slate-400 mb-2 text-sm font-medium">Berapa banyak penumpang dalam simulasi?</label>
                 <input 
                     type="number" 
                     min="1" 
                     max="20" 
                     value={passengerCount} 
                     onChange={e => setPassengerCount(Number(e.target.value))}
-                    className="w-full bg-slate-900 border border-slate-600 rounded p-3 text-lg"
+                    className="w-full bg-slate-900 border border-slate-600 rounded-lg p-3 text-lg focus:ring-2 focus:ring-blue-500 outline-none"
                 />
             </div>
 
-            <button onClick={() => setStep('PASSENGERS')} className="w-full bg-blue-600 hover:bg-blue-500 py-4 rounded text-lg font-bold flex items-center justify-center gap-2">
+            <button onClick={() => setStep('PASSENGERS')} className="w-full bg-blue-600 hover:bg-blue-500 py-4 rounded-xl text-lg font-bold flex items-center justify-center gap-2 transition-all shadow-lg shadow-blue-900/20">
                 Lanjut: Atur Penumpang <ChevronRight />
             </button>
           </div>
@@ -575,72 +598,148 @@ export default function App() {
         {step === 'PASSENGERS' && (
             <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
                  <h3 className="text-xl font-bold text-white mb-4 border-b border-slate-700 pb-2">Detail Penumpang ({passengerCount})</h3>
-                 <div className="max-h-[500px] overflow-y-auto space-y-4 pr-2 custom-scrollbar">
+                 <div className="max-h-[400px] overflow-y-auto space-y-4 pr-2 custom-scrollbar">
                     {passengerConfigs.map((p, idx) => (
-                        <div key={idx} className="bg-slate-800 p-4 rounded border border-slate-700">
+                        <div key={idx} className="bg-slate-800 p-4 rounded-xl border border-slate-700 hover:border-slate-500 transition-colors">
                             <div className="flex justify-between items-center mb-2">
-                                <span className="text-blue-400 font-bold">Penumpang {idx + 1}</span>
+                                <span className="text-blue-400 font-bold flex items-center gap-2">
+                                    <div className="w-6 h-6 rounded-full bg-blue-500/20 flex items-center justify-center text-xs">{idx + 1}</div>
+                                    Penumpang {idx + 1}
+                                </span>
                             </div>
                             <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                                 <div className="md:col-span-1">
-                                    <label className="text-[10px] uppercase text-slate-500 block">Nama</label>
+                                    <label className="text-[10px] uppercase text-slate-500 block font-bold mb-1">Nama</label>
                                     <input type="text" value={p.name} onChange={e => {
                                         const newC = [...passengerConfigs]; newC[idx].name = e.target.value; setPassengerConfigs(newC);
-                                    }} className="w-full bg-slate-900 p-1 border border-slate-600 rounded text-sm"/>
+                                    }} className="w-full bg-slate-900 p-2 border border-slate-600 rounded text-sm focus:border-blue-400 outline-none"/>
                                 </div>
                                 <div>
-                                    <label className="text-[10px] uppercase text-slate-500 block">Berat (kg)</label>
+                                    <label className="text-[10px] uppercase text-slate-500 block font-bold mb-1">Berat (kg)</label>
                                     <input type="number" value={p.weight} onChange={e => {
                                         const newC = [...passengerConfigs]; newC[idx].weight = Number(e.target.value); setPassengerConfigs(newC);
-                                    }} className="w-full bg-slate-900 p-1 border border-slate-600 rounded text-sm"/>
+                                    }} className="w-full bg-slate-900 p-2 border border-slate-600 rounded text-sm focus:border-blue-400 outline-none"/>
                                 </div>
                                 <div>
-                                    <label className="text-[10px] uppercase text-slate-500 block">Asal</label>
+                                    <label className="text-[10px] uppercase text-slate-500 block font-bold mb-1">Asal</label>
                                     <select value={p.startFloor} onChange={e => {
                                         const newC = [...passengerConfigs]; newC[idx].startFloor = Number(e.target.value); setPassengerConfigs(newC);
-                                    }} className="w-full bg-slate-900 p-1 border border-slate-600 rounded text-sm">
+                                    }} className="w-full bg-slate-900 p-2 border border-slate-600 rounded text-sm focus:border-blue-400 outline-none">
                                         {FLOORS.map(f => <option key={f} value={f}>{f}</option>)}
                                     </select>
                                 </div>
                                 <div>
-                                    <label className="text-[10px] uppercase text-slate-500 block">Tujuan</label>
+                                    <label className="text-[10px] uppercase text-slate-500 block font-bold mb-1">Tujuan</label>
                                     <select value={p.destinationFloor} onChange={e => {
                                         const newC = [...passengerConfigs]; newC[idx].destinationFloor = Number(e.target.value); setPassengerConfigs(newC);
-                                    }} className="w-full bg-slate-900 p-1 border border-slate-600 rounded text-sm">
+                                    }} className="w-full bg-slate-900 p-2 border border-slate-600 rounded text-sm focus:border-blue-400 outline-none">
                                         {FLOORS.map(f => <option key={f} value={f}>{f}</option>)}
                                     </select>
                                 </div>
                                 <div>
-                                    <label className="text-[10px] uppercase text-slate-500 block">Waktu (detik)</label>
+                                    <label className="text-[10px] uppercase text-slate-500 block font-bold mb-1">Waktu (detik)</label>
                                     <input type="number" min="0" value={p.requestTime} onChange={e => {
                                         const newC = [...passengerConfigs]; newC[idx].requestTime = Number(e.target.value); setPassengerConfigs(newC);
-                                    }} className="w-full bg-slate-900 p-1 border border-slate-600 rounded text-sm"/>
+                                    }} className="w-full bg-slate-900 p-2 border border-slate-600 rounded text-sm focus:border-blue-400 outline-none"/>
                                 </div>
                             </div>
                         </div>
                     ))}
                  </div>
-                 <div className="flex gap-4">
-                    <button onClick={() => setStep('LIFTS')} className="px-6 py-3 border border-slate-600 rounded hover:bg-slate-800">Kembali</button>
-                    <button onClick={() => setStep('REVIEW')} className="flex-1 bg-blue-600 hover:bg-blue-500 py-3 rounded font-bold">Review Skenario</button>
+                 <div className="flex gap-4 pt-4">
+                    <button onClick={() => setStep('LIFTS')} className="px-6 py-3 border border-slate-600 rounded-lg hover:bg-slate-800 transition-colors">Kembali</button>
+                    <button onClick={() => setStep('REVIEW')} className="flex-1 bg-blue-600 hover:bg-blue-500 py-3 rounded-lg font-bold shadow-lg shadow-blue-900/20">Review Skenario</button>
                  </div>
             </div>
         )}
 
         {step === 'REVIEW' && (
-            <div className="animate-in fade-in slide-in-from-bottom-4 font-mono text-sm">
-                <div className="border border-slate-600 p-6 rounded bg-black/50 space-y-6">
-                    <div className="text-center text-yellow-400 mb-6">
-                        ╔══════════════════════════════════════════════════════╗<br/>
-                        ║                 RINGKASAN SKENARIO                   ║<br/>
-                        ╚══════════════════════════════════════════════════════╝
+            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
+                <div className="bg-slate-800/50 p-6 rounded-xl border border-slate-700 space-y-6">
+                    <div className="flex items-center gap-3 border-b border-slate-700 pb-4">
+                        <div className="p-2 bg-blue-500/10 rounded-lg text-blue-400">
+                            <FileText size={24} />
+                        </div>
+                        <div>
+                            <h3 className="text-lg font-bold text-white">Konfirmasi Skenario Simulasi</h3>
+                            <p className="text-slate-400 text-sm">Verifikasi data konfigurasi sebelum menjalankan sistem.</p>
+                        </div>
                     </div>
-                    {/* Simplified review UI for brevity in this update */}
-                    <div className="flex gap-4 mt-8">
-                        <button onClick={startSimulation} className="w-full bg-green-600 hover:bg-green-500 py-3 rounded font-bold text-lg animate-pulse">
-                            MULAI SIMULASI
-                        </button>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="bg-slate-900 p-4 rounded-lg border border-slate-700 flex flex-col gap-1">
+                            <div className="flex items-center gap-2 text-slate-500">
+                                <Scale size={14} />
+                                <span className="text-[10px] uppercase font-bold tracking-wider">Total Beban Estimasi</span>
+                            </div>
+                            <div className="text-2xl font-mono text-white">
+                                {passengerConfigs.reduce((acc, p) => acc + p.weight, 0)} <span className="text-sm text-slate-500">kg</span>
+                            </div>
+                        </div>
+                        <div className="bg-slate-900 p-4 rounded-lg border border-slate-700 flex flex-col gap-1">
+                            <div className="flex items-center gap-2 text-slate-500">
+                                <ArrowUpRight size={14} />
+                                <span className="text-[10px] uppercase font-bold tracking-wider">Posisi Awal Lift A</span>
+                            </div>
+                            <div className="text-2xl font-mono text-white">Lantai {configLiftA}</div>
+                        </div>
+                        <div className="bg-slate-900 p-4 rounded-lg border border-slate-700 flex flex-col gap-1">
+                            <div className="flex items-center gap-2 text-slate-500">
+                                <ArrowUpRight size={14} />
+                                <span className="text-[10px] uppercase font-bold tracking-wider">Posisi Awal Lift B</span>
+                            </div>
+                            <div className="text-2xl font-mono text-white">Lantai {configLiftB}</div>
+                        </div>
                     </div>
+
+                    <div>
+                        <h4 className="text-sm font-bold text-slate-300 mb-3 uppercase tracking-wider flex justify-between items-center">
+                            <span>Manifes Penumpang</span>
+                            <span className="bg-slate-700 text-white text-[10px] px-2 py-0.5 rounded-full">{passengerCount} PAX</span>
+                        </h4>
+                        <div className="bg-slate-900 rounded-lg border border-slate-700 overflow-hidden max-h-[300px] overflow-y-auto">
+                            <table className="w-full text-sm text-left">
+                                <thead className="bg-slate-800 text-slate-400 font-mono text-xs sticky top-0 z-10">
+                                    <tr>
+                                        <th className="p-3">ID / Nama</th>
+                                        <th className="p-3">Berat</th>
+                                        <th className="p-3">Rute</th>
+                                        <th className="p-3">Waktu Request</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-800 text-slate-300 font-mono text-xs">
+                                    {passengerConfigs.map((p, i) => (
+                                        <tr key={i} className="hover:bg-slate-800/50 transition-colors">
+                                            <td className="p-3 font-bold text-white flex items-center gap-2">
+                                                <div className="w-1.5 h-1.5 bg-blue-500 rounded-full"></div>
+                                                {p.name}
+                                            </td>
+                                            <td className="p-3">{p.weight} kg</td>
+                                            <td className="p-3">
+                                                <span className={`px-2 py-1 rounded text-[10px] font-bold border ${p.destinationFloor > p.startFloor ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border-rose-500/20'}`}>
+                                                    L{p.startFloor} → L{p.destinationFloor}
+                                                </span>
+                                            </td>
+                                            <td className="p-3 text-slate-400">T + {p.requestTime}s</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="flex gap-4">
+                    <button onClick={() => setStep('PASSENGERS')} className="px-6 py-3 border border-slate-600 rounded-xl hover:bg-slate-800 text-slate-300 transition-colors">
+                        Ubah Data
+                    </button>
+                    <button 
+                        onClick={startSimulation} 
+                        className="flex-1 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 py-4 rounded-xl font-bold text-white shadow-lg shadow-blue-900/20 flex items-center justify-center gap-2 transition-all group"
+                    >
+                        <Play size={20} fill="currentColor" className="group-hover:scale-110 transition-transform" />
+                        JALANKAN SISTEM
+                    </button>
                 </div>
             </div>
         )}

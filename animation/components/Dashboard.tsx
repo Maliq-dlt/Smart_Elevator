@@ -1,6 +1,6 @@
 import React from 'react';
 import { LiftState, SimulationStats, MachineComponent } from '../types';
-import { Activity, AlertTriangle, CheckCircle, Zap, BarChart2, Clock, MapPin } from 'lucide-react';
+import { Activity, AlertTriangle, Zap, BarChart2, MapPin } from 'lucide-react';
 
 interface Props {
   liftA: LiftState;
@@ -8,22 +8,34 @@ interface Props {
   stats: SimulationStats;
 }
 
+// Improved Gauge using SVG for smoother rendering
 const Gauge: React.FC<{ value: number; label: string; color: string }> = ({ value, label, color }) => {
-    const rotation = (value / 100) * 180 - 90; // -90 to 90 degrees
+    // Radius 40, centered at (50, 50). Arc from 10,50 to 90,50.
+    const radius = 40;
+    const maxLen = Math.PI * radius; // Semi-circle length
+    const currentLen = (Math.max(0, Math.min(100, value)) / 100) * maxLen;
+    
     return (
-        <div className="flex flex-col items-center justify-center p-4 bg-slate-800 rounded-lg border border-slate-700 relative overflow-hidden">
-            <div className="relative w-32 h-16 overflow-hidden mb-2">
-                <div className="absolute top-0 left-0 w-32 h-32 rounded-full border-[12px] border-slate-700"></div>
-                <div 
-                    className={`absolute top-0 left-0 w-32 h-32 rounded-full border-[12px] border-transparent transition-transform duration-1000 ease-out`}
-                    style={{ 
-                        borderColor: `${color} transparent transparent transparent`,
-                        transform: `rotate(${rotation}deg)` 
-                    }}
-                ></div>
+        <div className="flex flex-col items-center justify-center p-4 bg-slate-800 rounded-lg border border-slate-700 relative">
+            <div className="relative w-32 h-16 overflow-hidden">
+                 <svg viewBox="0 0 100 50" className="w-full h-full">
+                    {/* Background Arc */}
+                    <path d="M 10 50 A 40 40 0 0 1 90 50" fill="none" stroke="#1e293b" strokeWidth="8" strokeLinecap="round" />
+                    {/* Foreground Arc */}
+                    <path 
+                        d="M 10 50 A 40 40 0 0 1 90 50" 
+                        fill="none" 
+                        stroke={color} 
+                        strokeWidth="8" 
+                        strokeDasharray={`${maxLen} ${maxLen}`}
+                        strokeDashoffset={maxLen - currentLen}
+                        strokeLinecap="round"
+                        className="transition-all duration-1000 ease-out"
+                    />
+                 </svg>
             </div>
-            <div className="text-2xl font-bold font-mono">{Math.round(value)}%</div>
-            <div className="text-xs text-slate-400 uppercase tracking-widest">{label}</div>
+            <div className="text-2xl font-bold font-mono -mt-4 text-white relative z-10">{Math.round(value)}%</div>
+            <div className="text-[10px] text-slate-400 uppercase tracking-widest mt-1">{label}</div>
         </div>
     );
 };
@@ -45,23 +57,23 @@ const ComponentRow: React.FC<{ liftId: string; comp: MachineComponent }> = ({ li
             <div className="flex items-center gap-4 w-1/3">
                 <div className="w-full bg-slate-900 h-2 rounded-full overflow-hidden border border-slate-700">
                     <div 
-                        className={`h-full ${comp.health > 70 ? 'bg-blue-500' : comp.health > 40 ? 'bg-amber-500' : 'bg-rose-500'}`} 
+                        className={`h-full transition-all duration-500 ${comp.health > 70 ? 'bg-blue-500' : comp.health > 40 ? 'bg-amber-500' : 'bg-rose-500'}`} 
                         style={{ width: `${comp.health}%` }}
                     />
                 </div>
-                <span className="text-xs font-mono w-8 text-right">{Math.round(comp.health)}%</span>
+                <span className="text-xs font-mono w-8 text-right text-slate-400">{Math.round(comp.health)}%</span>
             </div>
         </div>
     );
 };
 
 export const Dashboard: React.FC<Props> = ({ liftA, liftB, stats }) => {
-    // Calculate OEE metrics based on simulation data (mocked slightly for visual effect)
-    const availability = 98.5; // Example: (Uptime / Total Time)
+    // Calculate OEE metrics
+    const availability = 98.5; // Simulated uptime
     const performance = Math.min(100, (stats.totalPassengersDelivered / (stats.totalPassengersDelivered + 5)) * 100 + 20); 
     const oee = (availability * performance) / 100;
 
-    const maxFloorVisits = Math.max(...Object.values(stats.floorVisits), 1);
+    const maxFloorVisits = Math.max(...(Object.values(stats.floorVisits) as number[]), 1);
 
     return (
         <div className="space-y-6">
@@ -83,12 +95,12 @@ export const Dashboard: React.FC<Props> = ({ liftA, liftB, stats }) => {
                             MACHINE HEALTH STATUS
                         </h3>
                         <div className="flex gap-2">
-                            <span className="text-[10px] px-2 py-1 bg-emerald-500/10 text-emerald-500 rounded border border-emerald-500/20">ACTIVE</span>
+                            <span className="text-[10px] px-2 py-1 bg-emerald-500/10 text-emerald-500 rounded border border-emerald-500/20 animate-pulse">MONITORING</span>
                         </div>
                     </div>
                     <div className="overflow-y-auto p-2 scrollbar-thin scrollbar-thumb-slate-600">
-                        {liftA.components.map((c, i) => <ComponentRow key={`A-${i}`} liftId="LIFT-A" comp={c} />)}
-                        {liftB.components.map((c, i) => <ComponentRow key={`B-${i}`} liftId="LIFT-B" comp={c} />)}
+                        {liftA.components.map((c, i) => <ComponentRow key={`A-${i}`} liftId="LIFT A" comp={c} />)}
+                        {liftB.components.map((c, i) => <ComponentRow key={`B-${i}`} liftId="LIFT B" comp={c} />)}
                     </div>
                 </div>
 
@@ -99,16 +111,20 @@ export const Dashboard: React.FC<Props> = ({ liftA, liftB, stats }) => {
                     <div className="bg-slate-800 rounded-xl border border-slate-700 p-4 flex-1 flex flex-col">
                         <div className="text-xs text-slate-400 mb-2 flex justify-between">
                             <span className="flex items-center gap-1"><Zap size={12} /> POWER CONSUMPTION (Real-time)</span>
-                            <span className="text-yellow-400 font-mono">{(stats.totalEnergyJ / 1000).toFixed(1)} kJ</span>
+                            <span className="text-yellow-400 font-mono font-bold">{(stats.totalEnergyJ / 1000).toFixed(1)} kJ</span>
                         </div>
-                        <div className="flex items-end gap-1 h-full pt-4 border-b border-l border-slate-600/50">
-                            {stats.energyHistory.slice(-20).map((val: number, idx: number) => {
-                                const height = Math.min(100, (val / 5000) * 100); // Normalize visual
+                        <div className="flex items-end gap-1 h-full pt-4 border-b border-l border-slate-600/50 relative overflow-hidden">
+                            {/* Grid lines */}
+                            <div className="absolute inset-0 flex flex-col justify-between opacity-10 pointer-events-none">
+                                <div className="w-full h-px bg-white"></div>
+                                <div className="w-full h-px bg-white"></div>
+                                <div className="w-full h-px bg-white"></div>
+                            </div>
+
+                            {stats.energyHistory.slice(-25).map((val: number, idx: number) => {
+                                const height = Math.min(100, (val / 4000) * 100); // Scale based on max load
                                 return (
-                                    <div key={idx} className="flex-1 bg-yellow-500/20 hover:bg-yellow-400/50 transition-colors relative group rounded-t-sm" style={{ height: `${height}%` }}>
-                                        <div className="absolute bottom-full left-1/2 -translate-x-1/2 hidden group-hover:block bg-black text-xs p-1 rounded z-10 whitespace-nowrap mb-1">
-                                            {val.toFixed(0)} J
-                                        </div>
+                                    <div key={idx} className="flex-1 bg-yellow-500/20 hover:bg-yellow-400/80 transition-all duration-300 relative group rounded-t-sm border-t border-yellow-500/50" style={{ height: `${height}%` }}>
                                     </div>
                                 );
                             })}
@@ -127,7 +143,7 @@ export const Dashboard: React.FC<Props> = ({ liftA, liftB, stats }) => {
                                         <span className="w-4 font-mono text-slate-500">{f}</span>
                                         <div className="flex-1 h-4 bg-slate-900 rounded overflow-hidden">
                                             <div 
-                                                className="h-full bg-indigo-500" 
+                                                className="h-full bg-indigo-500 transition-all duration-500" 
                                                 style={{ width: `${((stats.floorVisits[f] || 0) / maxFloorVisits) * 100}%` }}
                                             />
                                         </div>
@@ -143,11 +159,11 @@ export const Dashboard: React.FC<Props> = ({ liftA, liftB, stats }) => {
                              
                              <div className="grid grid-cols-2 gap-2 mt-1">
                                 <div className="bg-slate-900 p-2 rounded border border-slate-700">
-                                    <div className="text-[10px] text-slate-500">MAX (Week)</div>
+                                    <div className="text-[10px] text-slate-500">MAX</div>
                                     <div className="text-lg font-mono font-bold text-white">{stats.peakPassengers}</div>
                                 </div>
                                 <div className="bg-slate-900 p-2 rounded border border-slate-700">
-                                    <div className="text-[10px] text-slate-500">MIN (Week)</div>
+                                    <div className="text-[10px] text-slate-500">MIN</div>
                                     <div className="text-lg font-mono font-bold text-white">{stats.minPassengers}</div>
                                 </div>
                                 <div className="bg-slate-900 p-2 rounded border border-slate-700 col-span-2">
