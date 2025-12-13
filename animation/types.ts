@@ -1,3 +1,4 @@
+
 export type Direction = 'UP' | 'DOWN' | 'IDLE';
 
 export type LiftStatus = 
@@ -8,9 +9,17 @@ export type LiftStatus =
   | 'DOOR_CLOSING' 
   | 'MAINTENANCE' 
   | 'EMERGENCY_HALT'
+  | 'BATTERY_MODE'
   | 'OVERLOAD';
 
-export type SystemMode = 'NORMAL' | 'FIRE_ALARM' | 'POWER_OUTAGE';
+export type SystemMode = 'NORMAL' | 'FIRE_ALARM' | 'POWER_OUTAGE' | 'EARTHQUAKE' | 'FLOOD' | 'CABLE_SNAP' | 'CYBER_ATTACK';
+
+export interface Scenario {
+  title: string;
+  description: string; // The AI generated backstory
+  type: SystemMode;
+  severity: number; // 1-10
+}
 
 export interface Passenger {
   id: string;
@@ -43,6 +52,7 @@ export interface LiftState {
   energyConsumed: number; // Joules
   components: MachineComponent[];
   totalDistanceTraveled: number; // meters
+  batteryLevel: number; // 0-100% for Emergency Backup
 }
 
 export interface BuildingState {

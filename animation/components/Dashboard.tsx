@@ -1,15 +1,16 @@
 import React from 'react';
 import { LiftState, SimulationStats, MachineComponent } from '../types';
-import { Activity, AlertTriangle, Zap, BarChart2, MapPin } from 'lucide-react';
+import { Activity, AlertTriangle, Zap, BarChart2, MapPin, Battery } from 'lucide-react';
 
 interface Props {
   liftA: LiftState;
   liftB: LiftState;
   stats: SimulationStats;
+  bootSequence?: number; // 0 to 100 representing power restore status
 }
 
 // Improved Gauge using SVG for smoother rendering
-const Gauge: React.FC<{ value: number; label: string; color: string }> = ({ value, label, color }) => {
+const Gauge: React.FC<{ value: number; label: string; color: string; suffix?: string }> = ({ value, label, color, suffix = '%' }) => {
     // Radius 40, centered at (50, 50). Arc from 10,50 to 90,50.
     const radius = 40;
     const maxLen = Math.PI * radius; // Semi-circle length
@@ -30,20 +31,23 @@ const Gauge: React.FC<{ value: number; label: string; color: string }> = ({ valu
                         strokeDasharray={`${maxLen} ${maxLen}`}
                         strokeDashoffset={maxLen - currentLen}
                         strokeLinecap="round"
-                        className="transition-all duration-1000 ease-out"
+                        className="transition-all duration-300 ease-out"
                     />
                  </svg>
             </div>
-            <div className="text-2xl font-bold font-mono -mt-4 text-white relative z-10">{Math.round(value)}%</div>
+            <div className="text-2xl font-bold font-mono -mt-4 text-white relative z-10">{Math.round(value)}{suffix}</div>
             <div className="text-[10px] text-slate-400 uppercase tracking-widest mt-1">{label}</div>
         </div>
     );
 };
 
-const ComponentRow: React.FC<{ liftId: string; comp: MachineComponent }> = ({ liftId, comp }) => {
+const ComponentRow: React.FC<{ liftId: string; comp: MachineComponent; bootScale: number }> = ({ liftId, comp, bootScale }) => {
     let statusColor = 'bg-emerald-500';
     if (comp.status === 'WARNING') statusColor = 'bg-amber-500';
     if (comp.status === 'CRITICAL') statusColor = 'bg-rose-500 animate-pulse';
+    
+    // Scale health visually by boot sequence (simulating sensor spin-up)
+    const displayHealth = comp.health * bootScale;
 
     return (
         <div className="flex items-center justify-between py-3 border-b border-slate-700/50 last:border-0 hover:bg-slate-700/30 px-2 transition-colors">
@@ -57,21 +61,46 @@ const ComponentRow: React.FC<{ liftId: string; comp: MachineComponent }> = ({ li
             <div className="flex items-center gap-4 w-1/3">
                 <div className="w-full bg-slate-900 h-2 rounded-full overflow-hidden border border-slate-700">
                     <div 
-                        className={`h-full transition-all duration-500 ${comp.health > 70 ? 'bg-blue-500' : comp.health > 40 ? 'bg-amber-500' : 'bg-rose-500'}`} 
-                        style={{ width: `${comp.health}%` }}
+                        className={`h-full transition-all duration-500 ${displayHealth > 70 ? 'bg-blue-500' : displayHealth > 40 ? 'bg-amber-500' : 'bg-rose-500'}`} 
+                        style={{ width: `${displayHealth}%` }}
                     />
                 </div>
-                <span className="text-xs font-mono w-8 text-right text-slate-400">{Math.round(comp.health)}%</span>
+                <span className="text-xs font-mono w-8 text-right text-slate-400">{Math.round(displayHealth)}%</span>
             </div>
         </div>
     );
 };
 
-export const Dashboard: React.FC<Props> = ({ liftA, liftB, stats }) => {
+const BatteryStatus: React.FC<{ liftA: number; liftB: number }> = ({ liftA, liftB }) => (
+    <div className="flex flex-col gap-2 p-4 bg-slate-800 rounded-lg border border-slate-700">
+        <div className="text-xs text-slate-400 mb-1 flex items-center gap-1"><Battery size={12} /> BACKUP POWER</div>
+        <div className="flex gap-2">
+            <div className="flex-1">
+                <div className="flex justify-between text-xs text-slate-300 mb-1"><span>LIFT A</span><span>{Math.round(liftA)}%</span></div>
+                <div className="h-2 w-full bg-slate-900 rounded-full overflow-hidden">
+                    <div className={`h-full ${liftA < 20 ? 'bg-red-500' : 'bg-green-500'} transition-all duration-500`} style={{width: `${liftA}%`}} />
+                </div>
+            </div>
+             <div className="flex-1">
+                <div className="flex justify-between text-xs text-slate-300 mb-1"><span>LIFT B</span><span>{Math.round(liftB)}%</span></div>
+                <div className="h-2 w-full bg-slate-900 rounded-full overflow-hidden">
+                    <div className={`h-full ${liftB < 20 ? 'bg-red-500' : 'bg-green-500'} transition-all duration-500`} style={{width: `${liftB}%`}} />
+                </div>
+            </div>
+        </div>
+    </div>
+);
+
+export const Dashboard: React.FC<Props> = ({ liftA, liftB, stats, bootSequence = 100 }) => {
+    // BOOT LOGIC: Scale metrics based on bootSequence
+    const bootScale = bootSequence / 100;
+
     // Calculate OEE metrics
-    const availability = 98.5; // Simulated uptime
-    const performance = Math.min(100, (stats.totalPassengersDelivered / (stats.totalPassengersDelivered + 5)) * 100 + 20); 
-    const oee = (availability * performance) / 100;
+    const availability = 98.5 * bootScale; 
+    const performance = Math.min(100, (stats.totalPassengersDelivered / (stats.totalPassengersDelivered + 5)) * 100 + 20) * bootScale; 
+    const oee = ((availability * performance) / 100);
+
+    const voltage = 220 * bootScale; // Simulate voltage ramping up to 220V
 
     const maxFloorVisits = Math.max(...(Object.values(stats.floorVisits) as number[]), 1);
 
@@ -79,8 +108,8 @@ export const Dashboard: React.FC<Props> = ({ liftA, liftB, stats }) => {
         <div className="space-y-6">
             {/* Top Row: Gauges */}
             <div className="grid grid-cols-3 gap-4">
+                <Gauge value={voltage / 2.2} label="Main Voltage" color="#8b5cf6" suffix="V" /> 
                 <Gauge value={availability} label="Availability" color="#10b981" />
-                <Gauge value={performance} label="Performance" color="#f59e0b" />
                 <Gauge value={oee} label="OEE Score" color="#3b82f6" />
             </div>
 
@@ -92,28 +121,32 @@ export const Dashboard: React.FC<Props> = ({ liftA, liftB, stats }) => {
                     <div className="bg-slate-900/50 p-4 border-b border-slate-700 flex justify-between items-center">
                         <h3 className="text-sm font-bold text-slate-200 flex items-center gap-2">
                             <Activity size={16} className="text-blue-400" />
-                            MACHINE HEALTH STATUS
+                            COMPONENT HEALTH
                         </h3>
                         <div className="flex gap-2">
-                            <span className="text-[10px] px-2 py-1 bg-emerald-500/10 text-emerald-500 rounded border border-emerald-500/20 animate-pulse">MONITORING</span>
+                            {bootSequence < 100 ? (
+                                <span className="text-[10px] px-2 py-1 bg-yellow-500/10 text-yellow-500 rounded border border-yellow-500/20 animate-pulse font-bold">BOOTING {bootSequence}%</span>
+                            ) : (
+                                <span className="text-[10px] px-2 py-1 bg-emerald-500/10 text-emerald-500 rounded border border-emerald-500/20 font-bold">LIVE</span>
+                            )}
                         </div>
                     </div>
                     <div className="overflow-y-auto p-2 scrollbar-thin scrollbar-thumb-slate-600">
-                        {liftA.components.map((c, i) => <ComponentRow key={`A-${i}`} liftId="LIFT A" comp={c} />)}
-                        {liftB.components.map((c, i) => <ComponentRow key={`B-${i}`} liftId="LIFT B" comp={c} />)}
+                        {liftA.components.map((c, i) => <ComponentRow key={`A-${i}`} liftId="LIFT A" comp={c} bootScale={bootScale} />)}
+                        {liftB.components.map((c, i) => <ComponentRow key={`B-${i}`} liftId="LIFT B" comp={c} bootScale={bootScale} />)}
                     </div>
                 </div>
 
                 {/* Right: Charts & Stats */}
                 <div className="flex flex-col gap-4 h-[400px]">
                     
-                    {/* Power Consumption Graph */}
+                    {/* Power Consumption Graph & Battery */}
                     <div className="bg-slate-800 rounded-xl border border-slate-700 p-4 flex-1 flex flex-col">
                         <div className="text-xs text-slate-400 mb-2 flex justify-between">
                             <span className="flex items-center gap-1"><Zap size={12} /> POWER CONSUMPTION (Real-time)</span>
                             <span className="text-yellow-400 font-mono font-bold">{(stats.totalEnergyJ / 1000).toFixed(1)} kJ</span>
                         </div>
-                        <div className="flex items-end gap-1 h-full pt-4 border-b border-l border-slate-600/50 relative overflow-hidden">
+                        <div className="flex items-end gap-1 h-full pt-4 border-b border-l border-slate-600/50 relative overflow-hidden mb-2">
                             {/* Grid lines */}
                             <div className="absolute inset-0 flex flex-col justify-between opacity-10 pointer-events-none">
                                 <div className="w-full h-px bg-white"></div>
@@ -122,13 +155,14 @@ export const Dashboard: React.FC<Props> = ({ liftA, liftB, stats }) => {
                             </div>
 
                             {stats.energyHistory.slice(-25).map((val: number, idx: number) => {
-                                const height = Math.min(100, (val / 4000) * 100); // Scale based on max load
+                                const height = Math.min(100, (val / 4000) * 100); 
                                 return (
                                     <div key={idx} className="flex-1 bg-yellow-500/20 hover:bg-yellow-400/80 transition-all duration-300 relative group rounded-t-sm border-t border-yellow-500/50" style={{ height: `${height}%` }}>
                                     </div>
                                 );
                             })}
                         </div>
+                        <BatteryStatus liftA={liftA.batteryLevel} liftB={liftB.batteryLevel} />
                     </div>
 
                     {/* Floor Frequency & Passenger Stats */}
