@@ -2,7 +2,9 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { LiftState, SystemMode, Scenario } from "../types/index";
 
-const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_API_KEY || '' });
+// Support both env formats
+const apiKey = (import.meta.env?.VITE_API_KEY || import.meta.env?.API_KEY || (typeof process !== 'undefined' && process.env?.API_KEY) || '') as string;
+const ai = new GoogleGenAI({ apiKey });
 
 const MODEL_NAME = 'gemini-2.5-flash';
 

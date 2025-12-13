@@ -367,6 +367,9 @@ export default function App() {
             if (liftA.status.includes('DOOR')) instantaneousJ += 300 * powerFactor;
             if (liftB.status.includes('DOOR')) instantaneousJ += 300 * powerFactor;
             instantaneousJ += (200 * powerFactor);
+
+            // FIX: Accumulate total energy consumption
+            nextStats.totalEnergyJ += instantaneousJ;
             nextStats.energyHistory = [...nextStats.energyHistory.slice(1), instantaneousJ];
         }
 
