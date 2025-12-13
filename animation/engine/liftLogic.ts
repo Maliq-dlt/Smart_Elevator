@@ -51,23 +51,23 @@ export const processLiftTick = (
 
     // --- CABLE HEALTH DEGRADATION ---
     if (nextLift.status === 'MOVING') {
-         const loadRatio = nextLift.totalWeight / LIFT_CAPACITY_KG;
-         if (loadRatio > 0.8) {
-             const degradation = 0.05 * (loadRatio - 0.7); 
-             const cableComp = nextLift.components.find(c => c.name === 'Cable Tension');
-             if (cableComp) {
-                 cableComp.health = Math.max(0, cableComp.health - degradation);
-                 if (cableComp.health < 50) cableComp.status = 'WARNING';
-                 if (cableComp.health < 20) cableComp.status = 'CRITICAL';
-                 
-                 if (cableComp.health <= 0 && !isCableSnapped) {
-                     // In a real pure function we can't set global state, but the App will detect health 0
-                     // and set isCableSnapped to true in the next cycle.
-                 }
-             }
-         }
+        const loadRatio = nextLift.totalWeight / LIFT_CAPACITY_KG;
+        if (loadRatio > 0.8) {
+            const degradation = 0.05 * (loadRatio - 0.8); // Fixed: was 0.7, should be 0.8 
+            const cableComp = nextLift.components.find(c => c.name === 'Cable Tension');
+            if (cableComp) {
+                cableComp.health = Math.max(0, cableComp.health - degradation);
+                if (cableComp.health < 50) cableComp.status = 'WARNING';
+                if (cableComp.health < 20) cableComp.status = 'CRITICAL';
+
+                if (cableComp.health <= 0 && !isCableSnapped) {
+                    // In a real pure function we can't set global state, but the App will detect health 0
+                    // and set isCableSnapped to true in the next cycle.
+                }
+            }
+        }
     }
-    
+
     // Treat 0 health as snapped
     if (nextLift.components.find(c => c.name === 'Cable Tension')?.health === 0) {
         isCableSnapped = true;
@@ -75,7 +75,7 @@ export const processLiftTick = (
 
     // --- 0. WAITING FOR APPROVAL STATE ---
     if (nextLift.status === 'WAITING_APPROVAL') {
-         return { lift: nextLift, building: nextBuilding, stats: nextStats, logs };
+        return { lift: nextLift, building: nextBuilding, stats: nextStats, logs };
     }
 
     // --- 1. CABLE SNAP LOGIC ---
@@ -100,16 +100,16 @@ export const processLiftTick = (
             if (snapTimerRef.current > 0) {
                 snapTimerRef.current -= TICK_RATE / 1000;
             } else {
-                 // Phase 3: Evacuate and Breakdown
-                 if (nextLift.passengers.length > 0) {
-                     const names = nextLift.passengers.map(p => p.name).join(', ');
-                     logs.push(`LIFT ${nextLift.id} EVAKUASI: ${names} telah keluar.`);
-                     nextLift.passengers = [];
-                     nextLift.totalWeight = 0;
-                 }
-                 nextLift.doorOpenProgress = 0;
-                 nextLift.status = 'MAINTENANCE';
-                 logs.push(`LIFT ${nextLift.id} OUT OF ORDER.`);
+                // Phase 3: Evacuate and Breakdown
+                if (nextLift.passengers.length > 0) {
+                    const names = nextLift.passengers.map(p => p.name).join(', ');
+                    logs.push(`LIFT ${nextLift.id} EVAKUASI: ${names} telah keluar.`);
+                    nextLift.passengers = [];
+                    nextLift.totalWeight = 0;
+                }
+                nextLift.doorOpenProgress = 0;
+                nextLift.status = 'MAINTENANCE';
+                logs.push(`LIFT ${nextLift.id} OUT OF ORDER.`);
             }
         } else {
             // Phase 0: Drift to floor
@@ -154,25 +154,25 @@ export const processLiftTick = (
         } else {
             // --- OVERLOAD CHECK ---
             if (nextLift.totalWeight > LIFT_CAPACITY_KG) {
-                 const passengers = [...nextLift.passengers];
-                 if (passengers.length > 0) {
-                     passengers.sort((a, b) => b.weight - a.weight);
-                     const heaviest = passengers[0];
-                     
-                     nextLift.passengers = passengers.slice(1);
-                     nextLift.totalWeight -= heaviest.weight;
-                     
-                     const currentFloor = Math.round(nextLift.currentFloor);
-                     nextBuilding.floors[currentFloor].waitingPassengers.push(heaviest);
-                     
-                     logs.push(`OVERLOAD (${(nextLift.totalWeight + heaviest.weight)}kg > 1000kg): ${heaviest.name} (${heaviest.weight}kg) diminta keluar.`);
-                     
-                     nextLift.doorOpenProgress = 1;
-                     const cable = nextLift.components.find(c => c.name === 'Cable Tension');
-                     if (cable) cable.health -= 2;
-                     
-                     return { lift: nextLift, building: nextBuilding, stats: nextStats, logs };
-                 }
+                const passengers = [...nextLift.passengers];
+                if (passengers.length > 0) {
+                    passengers.sort((a, b) => b.weight - a.weight);
+                    const heaviest = passengers[0];
+
+                    nextLift.passengers = passengers.slice(1);
+                    nextLift.totalWeight -= heaviest.weight;
+
+                    const currentFloor = Math.round(nextLift.currentFloor);
+                    nextBuilding.floors[currentFloor].waitingPassengers.push(heaviest);
+
+                    logs.push(`OVERLOAD (${(nextLift.totalWeight + heaviest.weight)}kg > 1000kg): ${heaviest.name} (${heaviest.weight}kg) diminta keluar.`);
+
+                    nextLift.doorOpenProgress = 1;
+                    const cable = nextLift.components.find(c => c.name === 'Cable Tension');
+                    if (cable) cable.health -= 2;
+
+                    return { lift: nextLift, building: nextBuilding, stats: nextStats, logs };
+                }
             }
             nextLift.status = 'DOOR_CLOSING';
         }
@@ -190,12 +190,12 @@ export const processLiftTick = (
 
             // REJECTION / EVACUATION CHECK
             if (systemMode === 'FIRE_ALARM') {
-                 const riskyPax = nextLift.passengers.filter(p => p.destinationFloor === fireFloor);
-                 if (riskyPax.length > 0) {
-                     const names = riskyPax.map(p => p.name).join(', ');
-                     logs.push(`SAFETY: ${names} dipaksa keluar di L${currentFloor} karena tujuan (L${fireFloor}) berbahaya.`);
-                     nextLift.passengers = nextLift.passengers.filter(p => p.destinationFloor !== fireFloor);
-                 }
+                const riskyPax = nextLift.passengers.filter(p => p.destinationFloor === fireFloor);
+                if (riskyPax.length > 0) {
+                    const names = riskyPax.map(p => p.name).join(', ');
+                    logs.push(`SAFETY: ${names} dipaksa keluar di L${currentFloor} karena tujuan (L${fireFloor}) berbahaya.`);
+                    nextLift.passengers = nextLift.passengers.filter(p => p.destinationFloor !== fireFloor);
+                }
             }
 
             if (!isFireHere) {
@@ -205,6 +205,24 @@ export const processLiftTick = (
 
                 if (leaving.length > 0) {
                     nextStats.totalPassengersDelivered += leaving.length;
+
+                    // Calculate wait time for each leaving passenger
+                    leaving.forEach(p => {
+                        if (p.boardTime !== undefined) {
+                            const travelTime = simTime - p.boardTime;
+                            const waitTime = (p.boardTime - p.requestTime) + travelTime;
+                            nextStats.totalWaitTime += waitTime;
+                        }
+                    });
+
+                    // Update average wait time
+                    if (nextStats.totalPassengersDelivered > 0) {
+                        nextStats.avgWaitTime = nextStats.totalWaitTime / nextStats.totalPassengersDelivered;
+                    }
+
+                    // Track floor visits
+                    nextStats.floorVisits[currentFloor] = (nextStats.floorVisits[currentFloor] || 0) + 1;
+
                     const names = leaving.map(p => p.name).join(', ');
                     logs.push(`${names} turun di Lantai ${currentFloor}`);
                 }
@@ -219,16 +237,23 @@ export const processLiftTick = (
                 for (const p of waiting) {
                     const pDir = p.destinationFloor > p.startFloor ? 'UP' : 'DOWN';
                     const canBoard = (liftDir === 'IDLE') || (liftDir === pDir) || (staying.length === 0);
-                    
+
                     if (canBoard) {
-                        boarding.push(p);
+                        // Set boardTime when passenger boards
+                        boarding.push({ ...p, boardTime: simTime });
                         currentWeight += p.weight;
                     } else {
                         leftBehind.push(p);
                     }
                 }
-                
+
                 nextLift.passengers = [...staying, ...boarding];
+
+                // Update peak passengers tracking
+                const totalCurrentPassengers = nextLift.passengers.length;
+                if (totalCurrentPassengers > nextStats.peakPassengers) {
+                    nextStats.peakPassengers = totalCurrentPassengers;
+                }
                 nextBuilding.floors[currentFloor].waitingPassengers = leftBehind;
                 nextLift.totalWeight = nextLift.passengers.reduce((sum, p) => sum + p.weight, 0);
             } else {
@@ -241,10 +266,10 @@ export const processLiftTick = (
         nextLift.doorOpenProgress -= 0.05 * Math.max(0.5, mainsSpeedMultiplier);
         if (nextLift.doorOpenProgress <= 0) {
             nextLift.doorOpenProgress = 0;
-            
+
             // --- INTERCEPTION LOGIC ---
             if (nextLift.passengers.length > 0) {
-                const riskyDestinations = nextLift.passengers.filter(p => 
+                const riskyDestinations = nextLift.passengers.filter(p =>
                     (systemMode === 'FIRE_ALARM' && p.destinationFloor === fireFloor) ||
                     (systemMode === 'FLOOD' && p.destinationFloor === 1)
                 );
@@ -253,17 +278,17 @@ export const processLiftTick = (
                     const targetFloor = riskyDestinations[0].destinationFloor;
                     const existingReq = approvalRequests.find(r => r.liftId === nextLift.id);
                     if (!existingReq) {
-                         const hazard = systemMode === 'FIRE_ALARM' ? 'KEBAKARAN' : 'BANJIR';
-                         const names = riskyDestinations.map(p => p.name).join(', ');
-                         logs.push(`INTERSEPSI: ${names} ingin ke L${targetFloor} yang berbahaya (${hazard}). Menunggu persetujuan User.`);
-                         
-                         newApprovalRequest = {
-                             liftId: nextLift.id,
-                             targetFloor: targetFloor,
-                             reason: `${hazard} di Lantai ${targetFloor}`
-                         };
+                        const hazard = systemMode === 'FIRE_ALARM' ? 'KEBAKARAN' : 'BANJIR';
+                        const names = riskyDestinations.map(p => p.name).join(', ');
+                        logs.push(`INTERSEPSI: ${names} ingin ke L${targetFloor} yang berbahaya (${hazard}). Menunggu persetujuan User.`);
+
+                        newApprovalRequest = {
+                            liftId: nextLift.id,
+                            targetFloor: targetFloor,
+                            reason: `${hazard} di Lantai ${targetFloor}`
+                        };
                     }
-                    
+
                     nextLift.status = 'WAITING_APPROVAL';
                     return { lift: nextLift, building: nextBuilding, stats: nextStats, logs, approvalRequest: newApprovalRequest };
                 }
@@ -278,7 +303,7 @@ export const processLiftTick = (
     // Movement
     if (nextLift.status === 'MOVING' && nextLift.targetFloor !== null) {
         nextLift.lastMoveTime = simTime;
-        
+
         const dist = Math.abs(nextLift.targetFloor - nextLift.currentFloor);
         const dir = Math.sign(nextLift.targetFloor - nextLift.currentFloor);
         let speed = LIFT_MAX_SPEED_MPS * Math.max(0.2, mainsSpeedMultiplier);

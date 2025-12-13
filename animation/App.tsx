@@ -44,6 +44,7 @@ export default function App() {
     const [pendingPassengers, setPendingPassengers] = useState<PassengerConfig[]>([]);
     const [activeScenario, setActiveScenario] = useState<Scenario | null>(null);
     const [isAutoSimulating, setIsAutoSimulating] = useState(false);
+    const [speedMultiplier, setSpeedMultiplier] = useState(1);
 
     const [liftA, setLiftA] = useState<LiftState>(initialLiftState('A', 1));
     const [liftB, setLiftB] = useState<LiftState>(initialLiftState('B', 1));
@@ -326,12 +327,13 @@ export default function App() {
     // --- Core Simulation Loop ---
     useEffect(() => {
         if (!isRunning || step !== 'RUNNING') return;
+        const effectiveTickRate = TICK_RATE / speedMultiplier;
         const interval = setInterval(() => {
             setSimTime(prev => prev + (TICK_RATE / 1000));
             updateSystem();
-        }, TICK_RATE);
+        }, effectiveTickRate);
         return () => clearInterval(interval);
-    }, [isRunning, step, systemMode, liftA, liftB, building, pendingPassengers, simTime, activeScenario, bootSequence, fireFloor, snapTarget, powerScope, approvalRequests, isAutoSimulating]);
+    }, [isRunning, step, systemMode, liftA, liftB, building, pendingPassengers, simTime, activeScenario, bootSequence, fireFloor, snapTarget, powerScope, approvalRequests, isAutoSimulating, speedMultiplier]);
 
     // --- Narrative Loop ---
     useEffect(() => {
@@ -459,6 +461,7 @@ export default function App() {
                 setStep={setStep} systemMode={systemMode} activeScenario={activeScenario} simTime={simTime}
                 resetSimulation={resetSimulation} isRunning={isRunning} setIsRunning={setIsRunning}
                 isAutoSimulating={isAutoSimulating} setIsAutoSimulating={setIsAutoSimulating}
+                speedMultiplier={speedMultiplier} setSpeedMultiplier={setSpeedMultiplier}
             />
 
             <main className="grid grid-cols-1 lg:grid-cols-12 gap-6">
