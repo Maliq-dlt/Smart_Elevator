@@ -199,16 +199,24 @@ export const processLiftTick = (
             nextLift.doorOpenProgress = 1;
             nextLift.status = 'DOOR_OPEN';
 
-            // BOARDING
             const currentFloor = Math.round(nextLift.currentFloor);
+
+            // Log pintu terbuka dengan info tombol yang dipencet
+            const destinationButtons = nextLift.passengers.map(p => `L${p.destinationFloor}`).filter((v, i, a) => a.indexOf(v) === i);
+            if (destinationButtons.length > 0) {
+                logs.push(`LIFT ${nextLift.id}: Pintu terbuka di L${currentFloor}. Tombol aktif: [${destinationButtons.join(', ')}]`);
+            } else {
+                logs.push(`LIFT ${nextLift.id}: Pintu terbuka di L${currentFloor}.`);
+            }
+
+            // BOARDING
             const isFireHere = systemMode === 'FIRE_ALARM' && currentFloor === fireFloor;
 
             // REJECTION / EVACUATION CHECK
             if (systemMode === 'FIRE_ALARM') {
                 const riskyPax = nextLift.passengers.filter(p => p.destinationFloor === fireFloor);
                 if (riskyPax.length > 0) {
-                    const names = riskyPax.map(p => p.name).join(', ');
-                    logs.push(`SAFETY: ${names} dipaksa keluar di L${currentFloor} karena tujuan (L${fireFloor}) berbahaya.`);
+                    logs.push(`SAFETY: Lantai ${fireFloor} berbahaya. Tombol L${fireFloor} dinonaktifkan.`);
                     nextLift.passengers = nextLift.passengers.filter(p => p.destinationFloor !== fireFloor);
                 }
             }
@@ -220,8 +228,7 @@ export const processLiftTick = (
 
                 if (leaving.length > 0) {
                     nextStats.totalPassengersDelivered += leaving.length;
-                    const names = leaving.map(p => p.name).join(', ');
-                    logs.push(`${names} turun di Lantai ${currentFloor}`);
+                    logs.push(`LIFT ${nextLift.id}: ${leaving.length} penumpang turun di L${currentFloor}.`);
                 }
 
                 const waiting = nextBuilding.floors[currentFloor].waitingPassengers;
@@ -248,6 +255,12 @@ export const processLiftTick = (
                     }
                 }
 
+                // Log boarding dengan tombol yang dipencet
+                if (boarding.length > 0) {
+                    const newButtons = boarding.map(p => `L${p.destinationFloor}`).filter((v, i, a) => a.indexOf(v) === i);
+                    logs.push(`LIFT ${nextLift.id}: ${boarding.length} penumpang naik. Tombol dipencet: [${newButtons.join(', ')}]`);
+                }
+
                 // Update avgWaitTime based on total passengers who have boarded
                 const totalBoarded = nextStats.totalPassengersDelivered + nextLift.passengers.length + boarding.length;
                 if (totalBoarded > 0) {
@@ -258,7 +271,7 @@ export const processLiftTick = (
                 nextBuilding.floors[currentFloor].waitingPassengers = leftBehind;
                 nextLift.totalWeight = nextLift.passengers.reduce((sum, p) => sum + p.weight, 0);
             } else {
-                logs.push(`FIRE ALARM: Doors opened at L${currentFloor} but boarding restricted!`, 'WARNING');
+                logs.push(`FIRE ALARM: L${currentFloor} tidak aman. Penumpang tidak diperbolehkan naik.`);
             }
         }
         return { lift: nextLift, building: nextBuilding, stats: nextStats, logs };
@@ -267,6 +280,14 @@ export const processLiftTick = (
         nextLift.doorOpenProgress -= 0.05 * Math.max(0.5, mainsSpeedMultiplier);
         if (nextLift.doorOpenProgress <= 0) {
             nextLift.doorOpenProgress = 0;
+
+            const currentFloor = Math.round(nextLift.currentFloor);
+            const activeButtons = nextLift.passengers.map(p => `L${p.destinationFloor}`).filter((v, i, a) => a.indexOf(v) === i);
+            if (activeButtons.length > 0) {
+                logs.push(`LIFT ${nextLift.id}: Pintu tertutup di L${currentFloor}. Menuju: [${activeButtons.join(', ')}]`);
+            } else {
+                logs.push(`LIFT ${nextLift.id}: Pintu tertutup di L${currentFloor}. Standby.`);
+            }
 
             // --- INTERCEPTION LOGIC ---
             if (nextLift.passengers.length > 0) {
@@ -280,8 +301,7 @@ export const processLiftTick = (
                     const existingReq = approvalRequests.find(r => r.liftId === nextLift.id);
                     if (!existingReq) {
                         const hazard = systemMode === 'FIRE_ALARM' ? 'KEBAKARAN' : 'BANJIR';
-                        const names = riskyDestinations.map(p => p.name).join(', ');
-                        logs.push(`INTERSEPSI: ${names} ingin ke L${targetFloor} yang berbahaya (${hazard}). Menunggu persetujuan User.`);
+                        logs.push(`INTERSEPSI: Tombol L${targetFloor} terdeteksi berbahaya (${hazard}). Menunggu persetujuan.`);
 
                         newApprovalRequest = {
                             liftId: nextLift.id,
@@ -359,23 +379,23 @@ export const processLiftTick = (
             // Cari penumpang darurat di lantai a dan b
             const emergencyPaxAtA = nextBuilding.floors[a].waitingPassengers.find(p => p.isEmergency);
             const emergencyPaxAtB = nextBuilding.floors[b].waitingPassengers.find(p => p.isEmergency);
-            
+
             if (emergencyPaxAtA && !emergencyPaxAtB) return -1;
             if (!emergencyPaxAtA && emergencyPaxAtB) return 1;
-            
+
             // Jika tidak ada darurat, cek VIP
             const vipPaxAtA = nextBuilding.floors[a].waitingPassengers.find(p => p.isVIP);
             const vipPaxAtB = nextBuilding.floors[b].waitingPassengers.find(p => p.isVIP);
-            
+
             if (vipPaxAtA && !vipPaxAtB) return -1;
             if (!vipPaxAtA && vipPaxAtB) return 1;
-            
+
             // Jika tidak ada darurat atau VIP, gunakan FIFO berdasarkan waktu permintaan
-            const firstPassengerAtA = nextBuilding.floors[a].waitingPassengers.length > 0 
-                ? nextBuilding.floors[a].waitingPassengers[0].requestTime 
+            const firstPassengerAtA = nextBuilding.floors[a].waitingPassengers.length > 0
+                ? nextBuilding.floors[a].waitingPassengers[0].requestTime
                 : Infinity;
-            const firstPassengerAtB = nextBuilding.floors[b].waitingPassengers.length > 0 
-                ? nextBuilding.floors[b].waitingPassengers[0].requestTime 
+            const firstPassengerAtB = nextBuilding.floors[b].waitingPassengers.length > 0
+                ? nextBuilding.floors[b].waitingPassengers[0].requestTime
                 : Infinity;
             return firstPassengerAtA - firstPassengerAtB;
         });
@@ -389,15 +409,15 @@ export const processLiftTick = (
             // SCAN Algorithm Implementation
             // The elevator moves in one direction until it reaches the end of its path,
             // then reverses direction
-            
+
             // Determine targets in the current direction of movement
             let targetsInDirection: number[] = [];
-            
+
             // If elevator is moving in a specific direction, prioritize targets in that direction
             if (nextLift.direction === 'UP') {
                 // Look for targets that are above current floor
                 targetsInDirection = Array.from(allTargets).filter(target => target >= nextLift.currentFloor);
-                
+
                 // If no targets in current direction, switch to DOWN and look for targets below
                 if (targetsInDirection.length === 0) {
                     targetsInDirection = Array.from(allTargets).filter(target => target < nextLift.currentFloor);
@@ -406,7 +426,7 @@ export const processLiftTick = (
             } else if (nextLift.direction === 'DOWN') {
                 // Look for targets that are below current floor
                 targetsInDirection = Array.from(allTargets).filter(target => target <= nextLift.currentFloor);
-                
+
                 // If no targets in current direction, switch to UP and look for targets above
                 if (targetsInDirection.length === 0) {
                     targetsInDirection = Array.from(allTargets).filter(target => target > nextLift.currentFloor);
@@ -417,13 +437,13 @@ export const processLiftTick = (
                 const closest = Array.from(allTargets).reduce((prev, curr) =>
                     Math.abs(curr - nextLift.currentFloor) < Math.abs(prev - nextLift.currentFloor) ? curr : prev
                 );
-                
+
                 // Load balancing: if other elevator is less loaded, consider letting it handle the request
                 const currentLiftLoad = nextLift.passengers.length + (nextBuilding.floors[Math.round(nextLift.currentFloor)]?.waitingPassengers.length || 0);
                 const otherLiftLoad = otherLift.passengers.length + (nextBuilding.floors[Math.round(otherLift.currentFloor)]?.waitingPassengers.length || 0);
-                
+
                 // If other elevator is significantly less loaded and closer to the target, let it handle
-                if (otherLiftLoad < currentLiftLoad && 
+                if (otherLiftLoad < currentLiftLoad &&
                     Math.abs(otherLift.currentFloor - closest) < Math.abs(nextLift.currentFloor - closest)) {
                     // In this case, remain idle and let the other elevator handle the request
                     nextLift.direction = 'IDLE';
@@ -439,29 +459,29 @@ export const processLiftTick = (
                 if (targetsInDirection.length > 0) {
                     // Load balancing: consider which targets would be more efficiently handled by this elevator vs other elevator
                     let optimalTarget: number | null = null;
-                    
+
                     // If elevator is idle, check if any targets are better handled by other elevator
                     if (nextLift.direction === 'IDLE') {
                         // Find the best target for this elevator considering distance and load
                         optimalTarget = null;
                         let bestScore = -Infinity;
-                        
+
                         for (const target of targetsInDirection) {
                             // Calculate score based on distance and current load
                             const distanceToTarget = Math.abs(target - nextLift.currentFloor);
                             const distanceForOther = Math.abs(target - otherLift.currentFloor);
-                            
+
                             // Calculate load difference - prefer targets that don't overload this elevator
                             const currentLiftLoad = nextLift.passengers.length;
                             const otherLiftLoad = otherLift.passengers.length;
-                            
+
                             // Score calculation: closer distance = higher score, but also consider load balance
                             const distanceScore = -distanceToTarget; // Negative because closer is better
                             const loadBalanceScore = otherLiftLoad - currentLiftLoad; // Positive if other elevator is more loaded
-                            
+
                             // Prefer targets this elevator can reach faster than the other
                             const targetScore = distanceScore + (distanceForOther < distanceToTarget ? -10 : 10) + loadBalanceScore;
-                            
+
                             if (targetScore > bestScore) {
                                 bestScore = targetScore;
                                 optimalTarget = target;
@@ -476,13 +496,23 @@ export const processLiftTick = (
                             optimalTarget = Math.min(...targetsInDirection);
                         }
                     }
-                    
+
                     if (optimalTarget !== null) {
                         nextLift.targetFloor = optimalTarget;
-                        
-                        // Check if already at target floor
+
+                        // Check if already at target floor - only open doors if there are passengers to pick up or drop off
                         if (Math.abs(nextLift.targetFloor - nextLift.currentFloor) < 0.1) {
-                            nextLift.status = 'DOOR_OPENING';
+                            const currentFloorInt = Math.round(nextLift.currentFloor);
+                            const hasWaitingPassengers = nextBuilding.floors[currentFloorInt]?.waitingPassengers.length > 0;
+                            const hasPassengersToDropOff = nextLift.passengers.some(p => p.destinationFloor === currentFloorInt);
+
+                            // Only open doors if there's a reason to
+                            if (hasWaitingPassengers || hasPassengersToDropOff) {
+                                nextLift.status = 'DOOR_OPENING';
+                            } else {
+                                // No reason to open doors, stay IDLE
+                                nextLift.targetFloor = null;
+                            }
                         } else {
                             nextLift.status = 'MOVING';
                         }
