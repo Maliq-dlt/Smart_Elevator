@@ -13,7 +13,7 @@ export type LiftStatus =
   | 'OVERLOAD'
   | 'WAITING_APPROVAL';
 
-export type SystemMode = 'NORMAL' | 'FIRE_ALARM' | 'POWER_OUTAGE' | 'EARTHQUAKE' | 'FLOOD' | 'CABLE_SNAP' | 'CYBER_ATTACK';
+export type SystemMode = 'NORMAL' | 'FIRE_ALARM' | 'POWER_OUTAGE' | 'EARTHQUAKE' | 'FLOOD' | 'CABLE_SNAP' | 'CYBER_ATTACK' | 'EMERGENCY_STOP';
 
 export interface Scenario {
   title: string;
@@ -30,6 +30,8 @@ export interface Passenger {
   requestTime: number;
   boardTime?: number;
   name: string; 
+  isVIP?: boolean;
+  isEmergency?: boolean;
 }
 
 export type ComponentType = 'Motor Unit' | 'Door Mechanism' | 'Brake System' | 'Control Panel' | 'Cable Tension';
@@ -74,6 +76,10 @@ export interface SimulationStats {
   peakPassengers: number;
   minPassengers: number;
   energyHistory: number[];
+  totalDistanceTraveled: number;
+  totalTravelTime: number;
+  elevatorUtilization: { [key: string]: number };
+  passengerThroughput: number;
 }
 
 export interface LogEntry {

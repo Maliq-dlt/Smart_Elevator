@@ -1,6 +1,5 @@
-
 import React from 'react';
-import { Settings, ArrowUpRight, UserPlus, ChevronRight, FileText, BrainCircuit, Dice5, Play } from 'lucide-react';
+import { Settings, ArrowUpRight, UserPlus, ChevronRight, FileText, BrainCircuit, Dice5, Play, Trash2, User } from 'lucide-react';
 import { FLOORS, MOCK_NAMES } from '../../constants/index';
 
 interface Props {
@@ -21,11 +20,37 @@ interface Props {
     loadingScenario: boolean;
 }
 
-export const SetupWizard: React.FC<Props> = ({ 
-    step, setStep, configLiftA, setConfigLiftA, configLiftB, setConfigLiftB, 
-    passengerCount, setPassengerCount, passengerConfigs, setPassengerConfigs, 
-    useAI, setUseAI, handleQuickLaunch, startSimulation, loadingScenario 
+export const SetupWizard: React.FC<Props> = ({
+    step, setStep, configLiftA, setConfigLiftA, configLiftB, setConfigLiftB,
+    passengerCount, setPassengerCount, passengerConfigs, setPassengerConfigs,
+    useAI, setUseAI, handleQuickLaunch, startSimulation, loadingScenario
 }) => {
+
+    const updatePassenger = (index: number, field: string, value: any) => {
+        const newConfigs = [...passengerConfigs];
+        newConfigs[index] = { ...newConfigs[index], [field]: value };
+        setPassengerConfigs(newConfigs);
+    };
+
+    const removePassenger = (index: number) => {
+        const newConfigs = passengerConfigs.filter((_, i) => i !== index);
+        setPassengerConfigs(newConfigs);
+        setPassengerCount(newConfigs.length);
+    };
+
+    const addPassenger = () => {
+        const newPax = {
+            id: Math.random().toString(36).substr(2, 9),
+            name: `Penumpang ${passengerConfigs.length + 1}`,
+            weight: 70,
+            startFloor: 1,
+            destinationFloor: 3,
+            requestTime: 0
+        };
+        setPassengerConfigs([...passengerConfigs, newPax]);
+        setPassengerCount(passengerConfigs.length + 1);
+    };
+
     return (
         <div className="max-w-4xl mx-auto mt-10 p-6 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl font-sans">
             <div className="flex justify-between items-center mb-8 pb-4 border-b border-slate-800">
@@ -39,6 +64,7 @@ export const SetupWizard: React.FC<Props> = ({
                     <span className="text-xs text-slate-500 group-hover:text-blue-400 font-bold uppercase tracking-wide">Quick Launch</span>
                 </div>
             </div>
+
             {step === 'LIFTS' && (
                 <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4">
                     <div className="bg-slate-800 p-6 rounded-xl border border-slate-700">
@@ -46,58 +72,116 @@ export const SetupWizard: React.FC<Props> = ({
                         <div className="grid grid-cols-2 gap-8">
                             <div>
                                 <label className="block text-slate-400 mb-2 text-sm font-medium">Mulai Lift A</label>
-                                <select value={configLiftA} onChange={e => setConfigLiftA(Number(e.target.value))} className="w-full bg-slate-900 border border-slate-600 rounded-lg p-3 text-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                                <select value={configLiftA} onChange={e => setConfigLiftA(Number(e.target.value))} className="w-full bg-slate-900 border border-slate-600 rounded-lg p-3 text-lg focus:ring-2 focus:ring-blue-500 outline-none text-white">
                                     {FLOORS.map(f => <option key={f} value={f}>Lantai {f}</option>)}
                                 </select>
                             </div>
                             <div>
                                 <label className="block text-slate-400 mb-2 text-sm font-medium">Mulai Lift B</label>
-                                <select value={configLiftB} onChange={e => setConfigLiftB(Number(e.target.value))} className="w-full bg-slate-900 border border-slate-600 rounded-lg p-3 text-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                                <select value={configLiftB} onChange={e => setConfigLiftB(Number(e.target.value))} className="w-full bg-slate-900 border border-slate-600 rounded-lg p-3 text-lg focus:ring-2 focus:ring-blue-500 outline-none text-white">
                                     {FLOORS.map(f => <option key={f} value={f}>Lantai {f}</option>)}
                                 </select>
                             </div>
                         </div>
                     </div>
+
                     <div className="bg-slate-800 p-6 rounded-xl border border-slate-700">
-                        <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2"><UserPlus size={18} className="text-blue-400" /> Jumlah Penumpang</h3>
-                        <input type="number" min="1" max="20" value={passengerCount} onChange={e => setPassengerCount(Number(e.target.value))} className="w-full bg-slate-900 border border-slate-600 rounded-lg p-3 text-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+                        <h3 className="text-lg font-bold text-white mb-2 flex items-center gap-2"><UserPlus size={18} className="text-blue-400" /> Estimasi Penumpang Awal</h3>
+                        <p className="text-slate-400 text-sm mb-4">Anda bisa mengatur detail spesifik (nama, berat, tujuan) di halaman berikutnya.</p>
+                        <div className="flex items-center gap-4">
+                            <input type="range" min="1" max="15" value={passengerCount} onChange={e => setPassengerCount(Number(e.target.value))} className="flex-1 h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer" />
+                            <span className="bg-slate-900 px-4 py-2 rounded-lg border border-slate-600 font-mono text-xl font-bold w-16 text-center">{passengerCount}</span>
+                        </div>
                     </div>
-                    <button onClick={() => setStep('PASSENGERS')} className="w-full bg-blue-600 hover:bg-blue-500 py-4 rounded-xl text-lg font-bold flex items-center justify-center gap-2 transition-all shadow-lg shadow-blue-900/20">Lanjut <ChevronRight /></button>
+
+                    <button onClick={() => setStep('PASSENGERS')} className="w-full bg-blue-600 hover:bg-blue-500 py-4 rounded-xl text-lg font-bold flex items-center justify-center gap-2 transition-all shadow-lg shadow-blue-900/20 text-white">Lanjut Konfigurasi Penumpang <ChevronRight /></button>
                 </div>
             )}
+
             {step === 'PASSENGERS' && (
                 <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
-                    <h3 className="text-xl font-bold text-white mb-4 border-b border-slate-700 pb-2">Detail Penumpang ({passengerCount})</h3>
-                    <div className="max-h-[400px] overflow-y-auto space-y-4 pr-2 custom-scrollbar">
+                    <div className="flex justify-between items-end border-b border-slate-700 pb-2">
+                        <div>
+                            <h3 className="text-xl font-bold text-white">Daftar Penumpang</h3>
+                            <p className="text-slate-400 text-sm">Tentukan siapa saja yang akan menggunakan lift saat simulasi dimulai.</p>
+                        </div>
+                        <button onClick={addPassenger} className="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-lg text-sm font-bold flex items-center gap-1 transition-colors">
+                            <UserPlus size={16} /> Tambah
+                        </button>
+                    </div>
+
+                    <div className="max-h-[450px] overflow-y-auto space-y-3 pr-2 custom-scrollbar">
                         {passengerConfigs.map((p, idx) => (
-                            <div key={idx} className="bg-slate-800 p-4 rounded-xl border border-slate-700 hover:border-slate-500 transition-colors">
-                                <div className="flex justify-between items-center mb-2"><span className="text-blue-400 font-bold flex items-center gap-2"><div className="w-6 h-6 rounded-full bg-blue-500/20 flex items-center justify-center text-xs">{idx + 1}</div>Penumpang {idx + 1}</span></div>
-                                <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                                    <div className="md:col-span-1"><label className="text-[10px] uppercase text-slate-500 block font-bold mb-1">Nama</label><input type="text" value={p.name} onChange={e => { const newC = [...passengerConfigs]; newC[idx].name = e.target.value; setPassengerConfigs(newC); }} className="w-full bg-slate-900 p-2 border border-slate-600 rounded text-sm outline-none" /></div>
-                                    <div><label className="text-[10px] uppercase text-slate-500 block font-bold mb-1">Berat</label><input type="number" value={p.weight} onChange={e => { const newC = [...passengerConfigs]; newC[idx].weight = Number(e.target.value); setPassengerConfigs(newC); }} className="w-full bg-slate-900 p-2 border border-slate-600 rounded text-sm outline-none" /></div>
-                                    <div><label className="text-[10px] uppercase text-slate-500 block font-bold mb-1">Asal</label><select value={p.startFloor} onChange={e => { const newC = [...passengerConfigs]; newC[idx].startFloor = Number(e.target.value); setPassengerConfigs(newC); }} className="w-full bg-slate-900 p-2 border border-slate-600 rounded text-sm outline-none">{FLOORS.map(f => <option key={f} value={f}>{f}</option>)}</select></div>
-                                    <div><label className="text-[10px] uppercase text-slate-500 block font-bold mb-1">Tujuan</label><select value={p.destinationFloor} onChange={e => { const newC = [...passengerConfigs]; newC[idx].destinationFloor = Number(e.target.value); setPassengerConfigs(newC); }} className="w-full bg-slate-900 p-2 border border-slate-600 rounded text-sm outline-none">{FLOORS.map(f => <option key={f} value={f}>{f}</option>)}</select></div>
-                                    <div><label className="text-[10px] uppercase text-slate-500 block font-bold mb-1">Waktu</label><input type="number" value={p.requestTime} onChange={e => { const newC = [...passengerConfigs]; newC[idx].requestTime = Number(e.target.value); setPassengerConfigs(newC); }} className="w-full bg-slate-900 p-2 border border-slate-600 rounded text-sm outline-none" /></div>
+                            <div key={idx} className="bg-slate-800 p-4 rounded-xl border border-slate-700 hover:border-blue-500/50 transition-colors group relative">
+                                <button onClick={() => removePassenger(idx)} className="absolute top-4 right-4 text-slate-600 hover:text-red-400 transition-colors" title="Hapus Penumpang">
+                                    <Trash2 size={16} />
+                                </button>
+
+                                <div className="flex items-center gap-3 mb-3">
+                                    <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center text-slate-300 font-bold border border-slate-600">
+                                        <User size={14} />
+                                    </div>
+                                    <input
+                                        type="text"
+                                        value={p.name}
+                                        onChange={e => updatePassenger(idx, 'name', e.target.value)}
+                                        className="bg-transparent border-b border-dashed border-slate-600 focus:border-blue-500 outline-none text-white font-medium w-40 placeholder-slate-600"
+                                        placeholder="Nama Penumpang"
+                                    />
+                                </div>
+
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                    <div>
+                                        <label className="text-[10px] uppercase text-slate-500 block font-bold mb-1">Berat (kg)</label>
+                                        <input type="number" value={p.weight} onChange={e => updatePassenger(idx, 'weight', Number(e.target.value))} className="w-full bg-slate-900 p-2 border border-slate-600 rounded text-sm outline-none text-white focus:border-blue-500 transition-colors" />
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] uppercase text-slate-500 block font-bold mb-1">Lantai Asal</label>
+                                        <select value={p.startFloor} onChange={e => updatePassenger(idx, 'startFloor', Number(e.target.value))} className="w-full bg-slate-900 p-2 border border-slate-600 rounded text-sm outline-none text-white focus:border-blue-500 transition-colors">
+                                            {FLOORS.map(f => <option key={f} value={f}>Lantai {f}</option>)}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] uppercase text-slate-500 block font-bold mb-1">Tujuan</label>
+                                        <select value={p.destinationFloor} onChange={e => updatePassenger(idx, 'destinationFloor', Number(e.target.value))} className="w-full bg-slate-900 p-2 border border-slate-600 rounded text-sm outline-none text-white focus:border-blue-500 transition-colors">
+                                            {FLOORS.map(f => <option key={f} value={f}>Lantai {f}</option>)}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] uppercase text-slate-500 block font-bold mb-1">Delay (detik)</label>
+                                        <input type="number" value={p.requestTime} onChange={e => updatePassenger(idx, 'requestTime', Number(e.target.value))} className="w-full bg-slate-900 p-2 border border-slate-600 rounded text-sm outline-none text-white focus:border-blue-500 transition-colors" title="Waktu muncul setelah simulasi mulai" />
+                                    </div>
                                 </div>
                             </div>
                         ))}
+                        {passengerConfigs.length === 0 && (
+                            <div className="text-center py-8 text-slate-500 italic bg-slate-800/50 rounded-xl border border-dashed border-slate-700">
+                                Belum ada penumpang. Klik "Tambah" di atas.
+                            </div>
+                        )}
                     </div>
-                    <div className="flex gap-4 pt-4"><button onClick={() => setStep('LIFTS')} className="px-6 py-3 border border-slate-600 rounded-lg hover:bg-slate-800 transition-colors">Kembali</button><button onClick={() => setStep('REVIEW')} className="flex-1 bg-blue-600 hover:bg-blue-500 py-3 rounded-lg font-bold shadow-lg shadow-blue-900/20">Review Skenario</button></div>
+
+                    <div className="flex gap-4 pt-4">
+                        <button onClick={() => setStep('LIFTS')} className="px-6 py-3 border border-slate-600 rounded-lg hover:bg-slate-800 transition-colors text-slate-300 font-medium">Kembali</button>
+                        <button onClick={() => setStep('REVIEW')} className="flex-1 bg-blue-600 hover:bg-blue-500 py-3 rounded-lg font-bold shadow-lg shadow-blue-900/20 text-white flex justify-center items-center gap-2">
+                            Review & Jalankan <ChevronRight size={18} />
+                        </button>
+                    </div>
                 </div>
             )}
+
             {step === 'REVIEW' && (
                 <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
                     <div className="bg-slate-800/50 p-6 rounded-xl border border-slate-700">
-                        <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2"><FileText size={18} className="text-blue-400" /> Ringkasan Penumpang</h3>
+                        <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2"><FileText size={18} className="text-blue-400" /> Ringkasan Skenario</h3>
                         <div className="overflow-x-auto">
                             <table className="w-full text-left text-sm text-slate-400">
                                 <thead className="bg-slate-800 text-slate-200 uppercase font-mono text-xs">
                                     <tr>
                                         <th className="px-4 py-3">Nama</th>
                                         <th className="px-4 py-3">Berat (kg)</th>
-                                        <th className="px-4 py-3">Asal</th>
-                                        <th className="px-4 py-3">Tujuan</th>
-                                        <th className="px-4 py-3">Waktu</th>
+                                        <th className="px-4 py-3">Rute</th>
+                                        <th className="px-4 py-3">Waktu Masuk</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-700">
@@ -105,9 +189,12 @@ export const SetupWizard: React.FC<Props> = ({
                                         <tr key={i} className="hover:bg-slate-700/30">
                                             <td className="px-4 py-2 font-medium text-white">{p.name}</td>
                                             <td className="px-4 py-2">{p.weight}</td>
-                                            <td className="px-4 py-2">L{p.startFloor}</td>
-                                            <td className="px-4 py-2">L{p.destinationFloor}</td>
-                                            <td className="px-4 py-2">{p.requestTime}s</td>
+                                            <td className="px-4 py-2 flex items-center gap-2">
+                                                <span className="bg-slate-700 px-1.5 rounded text-xs text-white">L{p.startFloor}</span>
+                                                <ChevronRight size={12} />
+                                                <span className="bg-blue-600 px-1.5 rounded text-xs text-white">L{p.destinationFloor}</span>
+                                            </td>
+                                            <td className="px-4 py-2">T+{p.requestTime}s</td>
                                         </tr>
                                     ))}
                                 </tbody>
@@ -120,6 +207,7 @@ export const SetupWizard: React.FC<Props> = ({
                             <div><span className="text-xs text-slate-500 uppercase font-bold">Posisi Lift B</span><div className="text-xl font-mono text-white">Lantai {configLiftB}</div></div>
                         </div>
                     </div>
+
                     <div className={`p-6 rounded-xl border transition-all ${useAI ? 'bg-indigo-900/20 border-indigo-500/50' : 'bg-slate-800/30 border-slate-700'}`}>
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-4">
@@ -128,7 +216,7 @@ export const SetupWizard: React.FC<Props> = ({
                                 </div>
                                 <div>
                                     <h4 className={`font-bold text-lg ${useAI ? 'text-indigo-300' : 'text-slate-400'}`}>{useAI ? 'AI Skenario: AKTIF' : 'AI Skenario: NON-AKTIF'}</h4>
-                                    <p className="text-sm text-slate-400 max-w-md">{useAI ? "AI akan membuat skenario acak (Normal/Bencana) dan narasi dinamis selama simulasi." : "Simulasi berjalan dalam mode Manual/Normal. Tidak ada kejadian acak dari AI."}</p>
+                                    <p className="text-sm text-slate-400 max-w-md">{useAI ? "AI akan membuat skenario acak (Normal/Bencana) dan narasi dinamis." : "Simulasi berjalan Manual/Normal. Analisis menggunakan logika fallback."}</p>
                                 </div>
                             </div>
                             <label className="relative inline-flex items-center cursor-pointer">
@@ -137,10 +225,11 @@ export const SetupWizard: React.FC<Props> = ({
                             </label>
                         </div>
                     </div>
+
                     <div className="flex gap-4">
-                        <button onClick={() => setStep('PASSENGERS')} className="px-6 py-3 border border-slate-600 rounded-xl hover:bg-slate-800 text-slate-300 transition-colors">Ubah Data</button>
+                        <button onClick={() => setStep('PASSENGERS')} className="px-6 py-3 border border-slate-600 rounded-xl hover:bg-slate-800 text-slate-300 transition-colors font-medium">Ubah Data</button>
                         <button onClick={startSimulation} disabled={loadingScenario} className={`flex-1 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 py-4 rounded-xl font-bold text-white shadow-lg shadow-blue-900/20 flex items-center justify-center gap-2 transition-all group ${loadingScenario ? 'opacity-50 cursor-wait' : ''}`}>
-                            {loadingScenario ? 'MEMUAT SISTEM...' : (<><Play size={20} fill="currentColor" />{useAI ? 'JALANKAN DENGAN AI' : 'JALANKAN MANUAL'}</>)}
+                            {loadingScenario ? 'MEMUAT SISTEM...' : (<><Play size={20} fill="currentColor" />{useAI ? 'MULAI SIMULASI (AI)' : 'MULAI SIMULASI (MANUAL)'}</>)}
                         </button>
                     </div>
                 </div>
