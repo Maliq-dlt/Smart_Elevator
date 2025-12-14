@@ -1,0 +1,5 @@
+{
+  "name": "Smart Elevator Simulator",
+  "description": "A comprehensive FSA-based simulation of a 2-lift, 3-floor smart elevator system with realistic physics, passenger weight constraints, emergency scenarios, and AI-generated narrative logs.",
+  "requestFramePermissions": []
+}
