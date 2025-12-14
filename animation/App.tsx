@@ -11,6 +11,8 @@ import { LiftState, Passenger, BuildingState, SystemMode, LogEntry, SimulationSt
 import { MOCK_NAMES, TICK_RATE } from './constants/index';
 import { processLiftTick, initialLiftState } from './engine/liftLogic';
 import { generateSystemNarrative, generateScenarioAnalysis, generateRandomScenario } from './services/geminiService';
+import { audioService } from './services/audioService';
+import { historyService } from './services/historyService';
 import { ShieldAlert, CheckCircle, XCircle } from 'lucide-react';
 
 type SetupStep = 'LANDING' | 'LIFTS' | 'PASSENGERS' | 'REVIEW' | 'RUNNING';
@@ -53,7 +55,8 @@ export default function App() {
 
     const [stats, setStats] = useState<SimulationStats>({
         totalPassengersDelivered: 0, totalWaitTime: 0, avgWaitTime: 0, totalEnergyJ: 0,
-        floorVisits: { 1: 0, 2: 0, 3: 0 }, peakPassengers: 0, minPassengers: 0, energyHistory: Array(25).fill(0)
+        floorVisits: { 1: 0, 2: 0, 3: 0 }, peakPassengers: 0, minPassengers: 0, energyHistory: Array(25).fill(0),
+        totalDistanceTraveled: 0, totalTravelTime: 0, elevatorUtilization: { A: 0, B: 0 }, passengerThroughput: 0
     });
 
     const [systemMode, setSystemMode] = useState<SystemMode>('NORMAL');
@@ -61,6 +64,10 @@ export default function App() {
     const [isRunning, setIsRunning] = useState(false);
     const [loadingScenario, setLoadingScenario] = useState(false);
     const [bootSequence, setBootSequence] = useState(100);
+
+    // --- NEW FEATURES STATE ---
+    const [audioEnabled, setAudioEnabled] = useState(true);
+    const [journeyId, setJourneyId] = useState<string | null>(null);
 
     // --- SPECIFIC EVENT CONFIGS ---
     const [fireFloor, setFireFloor] = useState<number | null>(null);
@@ -102,6 +109,19 @@ export default function App() {
     useEffect(() => {
         narrativeEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }, [narrativeHistory]);
+
+    // --- AUDIO SERVICE INITIALIZATION ---
+    useEffect(() => {
+        const initAudio = async () => {
+            await audioService.init();
+            audioService.updateConfig({ enabled: audioEnabled });
+        };
+        initAudio();
+    }, []);
+
+    useEffect(() => {
+        audioService.updateConfig({ enabled: audioEnabled });
+    }, [audioEnabled]);
 
     // --- AUTO SIMULATION LOGIC ---
     useEffect(() => {
@@ -169,7 +189,8 @@ export default function App() {
         setPendingPassengers([...configs]);
         setStats({
             totalPassengersDelivered: 0, totalWaitTime: 0, avgWaitTime: 0, totalEnergyJ: 0,
-            floorVisits: { 1: 0, 2: 0, 3: 0 }, peakPassengers: 0, minPassengers: 0, energyHistory: Array(25).fill(0)
+            floorVisits: { 1: 0, 2: 0, 3: 0 }, peakPassengers: 0, minPassengers: 0, energyHistory: Array(25).fill(0),
+            totalDistanceTraveled: 0, totalTravelTime: 0, elevatorUtilization: { A: 0, B: 0 }, passengerThroughput: 0
         });
         setLogs([]);
         setSimTime(0);
@@ -181,6 +202,22 @@ export default function App() {
         setIsAutoSimulating(true); // Auto simulation enabled by default
         snapTimerA.current = 0;
         snapTimerB.current = 0;
+        
+        // Simpan riwayat perjalanan
+        const journeyId = historyService.saveJourney({
+            liftA: initialLiftState('A', configLiftA),
+            liftB: initialLiftState('B', configLiftB),
+            building: { floors: { 1: { waitingPassengers: [] }, 2: { waitingPassengers: [] }, 3: { waitingPassengers: [] } } },
+            stats: {
+                totalPassengersDelivered: 0, totalWaitTime: 0, avgWaitTime: 0, totalEnergyJ: 0,
+                floorVisits: { 1: 0, 2: 0, 3: 0 }, peakPassengers: 0, minPassengers: 0, energyHistory: Array(25).fill(0),
+                totalDistanceTraveled: 0, totalTravelTime: 0, elevatorUtilization: { A: 0, B: 0 }, passengerThroughput: 0
+            },
+            logs: [],
+            scenario: scenario.title
+        }, scenario.title);
+        
+        setJourneyId(journeyId);
         addLog(`SCENARIO ACTIVATED: ${scenario.title}`, 'SYSTEM');
         setIsRunning(true);
         setStep('RUNNING');

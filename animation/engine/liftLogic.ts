@@ -145,7 +145,22 @@ export const processLiftTick = (
         return { lift: nextLift, building: nextBuilding, stats: nextStats, logs };
     }
 
-    // --- 3. STANDARD OPERATIONS ---
+    // --- 3. EMERGENCY STOP LOGIC ---
+    if (systemMode === 'EMERGENCY_STOP') {
+        if (nextLift.status === 'MOVING') {
+            // Hentikan elevator secara perlahan
+            nextLift.status = 'EMERGENCY_HALT';
+            logs.push(`LIFT ${nextLift.id}: BERHENTI DARURAT - Menghentikan pergerakan`);
+        } else if (nextLift.status !== 'EMERGENCY_HALT' && nextLift.status !== 'DOOR_OPEN') {
+            // Jika elevator sedang idle atau dalam status lain, buka pintu
+            nextLift.status = 'DOOR_OPEN';
+            nextLift.doorOpenProgress = 1;
+            logs.push(`LIFT ${nextLift.id}: PINTU DIBUKA - Mode Darurat`);
+        }
+        return { lift: nextLift, building: nextBuilding, stats: nextStats, logs };
+    }
+
+    // --- 4. STANDARD OPERATIONS ---
 
     // Door Operations
     if (nextLift.status === 'DOOR_OPEN') {
@@ -329,6 +344,7 @@ export const processLiftTick = (
         const otherLiftBusy = otherLift.status !== 'IDLE';
         const otherLiftTarget = otherLift.targetFloor;
 
+        // Implementasi FIFO untuk antrean lantai - mengambil penumpang berdasarkan waktu permintaan
         const floorCalls = Object.keys(nextBuilding.floors).map(Number).filter(f => {
             if (systemMode === 'FIRE_ALARM' && f === fireFloor) return false;
             const hasPax = nextBuilding.floors[f].waitingPassengers.length > 0;
@@ -338,21 +354,143 @@ export const processLiftTick = (
             return true;
         });
 
+        // Urutkan floorCalls dengan prioritas: darurat > VIP > FIFO berdasarkan waktu permintaan
+        floorCalls.sort((a, b) => {
+            // Cari penumpang darurat di lantai a dan b
+            const emergencyPaxAtA = nextBuilding.floors[a].waitingPassengers.find(p => p.isEmergency);
+            const emergencyPaxAtB = nextBuilding.floors[b].waitingPassengers.find(p => p.isEmergency);
+            
+            if (emergencyPaxAtA && !emergencyPaxAtB) return -1;
+            if (!emergencyPaxAtA && emergencyPaxAtB) return 1;
+            
+            // Jika tidak ada darurat, cek VIP
+            const vipPaxAtA = nextBuilding.floors[a].waitingPassengers.find(p => p.isVIP);
+            const vipPaxAtB = nextBuilding.floors[b].waitingPassengers.find(p => p.isVIP);
+            
+            if (vipPaxAtA && !vipPaxAtB) return -1;
+            if (!vipPaxAtA && vipPaxAtB) return 1;
+            
+            // Jika tidak ada darurat atau VIP, gunakan FIFO berdasarkan waktu permintaan
+            const firstPassengerAtA = nextBuilding.floors[a].waitingPassengers.length > 0 
+                ? nextBuilding.floors[a].waitingPassengers[0].requestTime 
+                : Infinity;
+            const firstPassengerAtB = nextBuilding.floors[b].waitingPassengers.length > 0 
+                ? nextBuilding.floors[b].waitingPassengers[0].requestTime 
+                : Infinity;
+            return firstPassengerAtA - firstPassengerAtB;
+        });
+
         const cabinDestinations = nextLift.passengers.map(p => p.destinationFloor);
         const allTargets = new Set([...floorCalls, ...cabinDestinations]);
 
         if (allTargets.size === 0) {
             nextLift.direction = 'IDLE';
         } else {
-            const closest = Array.from(allTargets).reduce((prev, curr) =>
-                Math.abs(curr - nextLift.currentFloor) < Math.abs(prev - nextLift.currentFloor) ? curr : prev
-            );
-            if (Math.abs(closest - nextLift.currentFloor) < 0.1) {
-                nextLift.status = 'DOOR_OPENING';
+            // SCAN Algorithm Implementation
+            // The elevator moves in one direction until it reaches the end of its path,
+            // then reverses direction
+            
+            // Determine targets in the current direction of movement
+            let targetsInDirection: number[] = [];
+            
+            // If elevator is moving in a specific direction, prioritize targets in that direction
+            if (nextLift.direction === 'UP') {
+                // Look for targets that are above current floor
+                targetsInDirection = Array.from(allTargets).filter(target => target >= nextLift.currentFloor);
+                
+                // If no targets in current direction, switch to DOWN and look for targets below
+                if (targetsInDirection.length === 0) {
+                    targetsInDirection = Array.from(allTargets).filter(target => target < nextLift.currentFloor);
+                    nextLift.direction = 'DOWN';
+                }
+            } else if (nextLift.direction === 'DOWN') {
+                // Look for targets that are below current floor
+                targetsInDirection = Array.from(allTargets).filter(target => target <= nextLift.currentFloor);
+                
+                // If no targets in current direction, switch to UP and look for targets above
+                if (targetsInDirection.length === 0) {
+                    targetsInDirection = Array.from(allTargets).filter(target => target > nextLift.currentFloor);
+                    nextLift.direction = 'UP';
+                }
             } else {
-                nextLift.targetFloor = closest;
-                nextLift.status = 'MOVING';
-                nextLift.direction = closest > nextLift.currentFloor ? 'UP' : 'DOWN';
+                // If IDLE, determine initial direction based on closest target with load balancing
+                const closest = Array.from(allTargets).reduce((prev, curr) =>
+                    Math.abs(curr - nextLift.currentFloor) < Math.abs(prev - nextLift.currentFloor) ? curr : prev
+                );
+                
+                // Load balancing: if other elevator is less loaded, consider letting it handle the request
+                const currentLiftLoad = nextLift.passengers.length + (nextBuilding.floors[Math.round(nextLift.currentFloor)]?.waitingPassengers.length || 0);
+                const otherLiftLoad = otherLift.passengers.length + (nextBuilding.floors[Math.round(otherLift.currentFloor)]?.waitingPassengers.length || 0);
+                
+                // If other elevator is significantly less loaded and closer to the target, let it handle
+                if (otherLiftLoad < currentLiftLoad && 
+                    Math.abs(otherLift.currentFloor - closest) < Math.abs(nextLift.currentFloor - closest)) {
+                    // In this case, remain idle and let the other elevator handle the request
+                    nextLift.direction = 'IDLE';
+                } else {
+                    nextLift.targetFloor = closest;
+                    nextLift.direction = closest > nextLift.currentFloor ? 'UP' : 'DOWN';
+                    nextLift.status = 'MOVING';
+                }
+            }
+
+            // If still in IDLE state (not yet assigned a target), find the best target using SCAN logic with load balancing
+            if (nextLift.status === 'IDLE') {
+                if (targetsInDirection.length > 0) {
+                    // Load balancing: consider which targets would be more efficiently handled by this elevator vs other elevator
+                    let optimalTarget: number | null = null;
+                    
+                    // If elevator is idle, check if any targets are better handled by other elevator
+                    if (nextLift.direction === 'IDLE') {
+                        // Find the best target for this elevator considering distance and load
+                        optimalTarget = null;
+                        let bestScore = -Infinity;
+                        
+                        for (const target of targetsInDirection) {
+                            // Calculate score based on distance and current load
+                            const distanceToTarget = Math.abs(target - nextLift.currentFloor);
+                            const distanceForOther = Math.abs(target - otherLift.currentFloor);
+                            
+                            // Calculate load difference - prefer targets that don't overload this elevator
+                            const currentLiftLoad = nextLift.passengers.length;
+                            const otherLiftLoad = otherLift.passengers.length;
+                            
+                            // Score calculation: closer distance = higher score, but also consider load balance
+                            const distanceScore = -distanceToTarget; // Negative because closer is better
+                            const loadBalanceScore = otherLiftLoad - currentLiftLoad; // Positive if other elevator is more loaded
+                            
+                            // Prefer targets this elevator can reach faster than the other
+                            const targetScore = distanceScore + (distanceForOther < distanceToTarget ? -10 : 10) + loadBalanceScore;
+                            
+                            if (targetScore > bestScore) {
+                                bestScore = targetScore;
+                                optimalTarget = target;
+                            }
+                        }
+                    } else {
+                        // For SCAN algorithm, we pick the furthest target in the current direction
+                        // to ensure we service all floors in that direction before reversing
+                        if (nextLift.direction === 'UP') {
+                            optimalTarget = Math.max(...targetsInDirection);
+                        } else if (nextLift.direction === 'DOWN') {
+                            optimalTarget = Math.min(...targetsInDirection);
+                        }
+                    }
+                    
+                    if (optimalTarget !== null) {
+                        nextLift.targetFloor = optimalTarget;
+                        
+                        // Check if already at target floor
+                        if (Math.abs(nextLift.targetFloor - nextLift.currentFloor) < 0.1) {
+                            nextLift.status = 'DOOR_OPENING';
+                        } else {
+                            nextLift.status = 'MOVING';
+                        }
+                    }
+                } else {
+                    // No targets in any direction, remain idle
+                    nextLift.direction = 'IDLE';
+                }
             }
         }
     }
