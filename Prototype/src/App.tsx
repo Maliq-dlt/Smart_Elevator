@@ -402,6 +402,8 @@ export default function App() {
             if (liftB.status.includes('DOOR')) instantaneousJ += 300 * powerFactor;
             instantaneousJ += (200 * powerFactor);
             nextStats.energyHistory = [...nextStats.energyHistory.slice(1), instantaneousJ];
+            // Accumulate energy to total (convert J to kWh: J / 3600000)
+            nextStats.totalEnergyJ += instantaneousJ * (TICK_RATE / 1000) * timeScale;
         }
 
         const toSpawn = pendingPassengers.filter(p => p.requestTime <= currentSimTime);
