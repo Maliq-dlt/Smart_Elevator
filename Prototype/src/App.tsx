@@ -60,7 +60,7 @@ export default function App() {
 
     const [stats, setStats] = useState<SimulationStats>({
         totalPassengersDelivered: 0, totalBoarded: 0, totalWaitTime: 0, avgWaitTime: 0, totalEnergyJ: 0,
-        floorVisits: { 1: 0, 2: 0, 3: 0 }, peakPassengers: 0, minPassengers: 0, energyHistory: Array(25).fill(0)
+        floorVisits: { 1: 0, 2: 0, 3: 0 }, peakPassengers: 0, minPassengers: 0, energyHistory: Array(60).fill(0)
     });
 
     const [systemMode, setSystemMode] = useState<SystemMode>('NORMAL');
@@ -157,7 +157,7 @@ export default function App() {
         setPendingPassengers([...configs]);
         setStats({
             totalPassengersDelivered: 0, totalBoarded: 0, totalWaitTime: 0, avgWaitTime: 0, totalEnergyJ: 0,
-            floorVisits: { 1: 0, 2: 0, 3: 0 }, peakPassengers: 0, minPassengers: 0, energyHistory: Array(25).fill(0)
+            floorVisits: { 1: 0, 2: 0, 3: 0 }, peakPassengers: 0, minPassengers: 0, energyHistory: Array(60).fill(0)
         });
         setLogs([]);
         setSimTime(0);
@@ -393,18 +393,19 @@ export default function App() {
         };
         let nextStats = { ...stats };
 
-        if (Math.floor(currentSimTime * 10) % 10 === 0) {
-            let instantaneousJ = 0;
-            const powerFactor = bootSequence / 100;
-            if (liftA.status === 'MOVING') instantaneousJ += (2500 + Math.random() * 500) * powerFactor;
-            if (liftB.status === 'MOVING') instantaneousJ += (2500 + Math.random() * 500) * powerFactor;
-            if (liftA.status.includes('DOOR')) instantaneousJ += 300 * powerFactor;
-            if (liftB.status.includes('DOOR')) instantaneousJ += 300 * powerFactor;
-            instantaneousJ += (200 * powerFactor);
-            nextStats.energyHistory = [...nextStats.energyHistory.slice(1), instantaneousJ];
-            // Accumulate energy to total (convert J to kWh: J / 3600000)
-            nextStats.totalEnergyJ += instantaneousJ * (TICK_RATE / 1000) * timeScale;
-        }
+        // Update energy every tick for smooth Task Manager-like animation
+        let instantaneousJ = 0;
+        const powerFactor = bootSequence / 100;
+        if (liftA.status === 'MOVING') instantaneousJ += (2500 + Math.random() * 500) * powerFactor;
+        if (liftB.status === 'MOVING') instantaneousJ += (2500 + Math.random() * 500) * powerFactor;
+        if (liftA.status.includes('DOOR')) instantaneousJ += 300 * powerFactor;
+        if (liftB.status.includes('DOOR')) instantaneousJ += 300 * powerFactor;
+        instantaneousJ += (200 * powerFactor); // Base power for systems
+
+        // Keep last 60 data points for smooth scrolling (like Task Manager 60 second view)
+        nextStats.energyHistory = [...nextStats.energyHistory.slice(-59), instantaneousJ];
+        // Accumulate energy to total
+        nextStats.totalEnergyJ += instantaneousJ * (TICK_RATE / 1000) * timeScale;
 
         const toSpawn = pendingPassengers.filter(p => p.requestTime <= currentSimTime);
         if (toSpawn.length > 0) {
