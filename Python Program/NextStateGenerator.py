@@ -2,41 +2,39 @@ import itertools
 import csv
 
 """
-Smart Elevator FSA Generator (2 lift, 3 lantai)
+Smart Elevator FSA Generator (2 lift: A dan B, 3 lantai)
 
-Kamus data (state komponen per lift)
-- Floor (F): 1,2,3
-- Direction (D): I = Idle, U = Up, D = Down
-- Door (Door): O = Open, C = Closed; pintu hanya O saat Idle
-- Load (Load): N = Normal, V = Overload (harus Idle)
-- Service (Svc): IS = In Service, OS = Out of Service (harus Idle)
-- Power (Pwr): ON/OFF (OFF harus Idle)
-- Request (Req): string biner 3-bit, bit ke-1/2/3 = permintaan lantai 1/2/3; hanya car-call yang mengubah
+Spesifikasi (tanpa state UP/DOWN/IDLE):
+- Perpindahan lantai direpresentasikan dengan event ARR.
+- Request 3-bit (Rq) adalah pusat logika.
+- Impossible initial state wajib difilter saat generate state.
 
-Kode input (SIGMA)
-- Hall call: CU_1, CU_2, CD_2, CD_3 (tidak masuk memori request; hanya buka pintu bila Idle di lantai tersebut)
-- Car call: F1_A/F2_A/F3_A, F1_B/F2_B/F3_B → set bit request lift terkait
-- Door control: O_A/C_A, O_B/C_B (hanya saat Idle)
-- Load: OV_*, N_*
-- Timer Idle: T_A, T_B (saat Idle dan Req≠000 → pilih arah ke lantai terdekat, tie-break ke bawah)
-- Error: ERR_A, ERR_B (langsung OS, req clear)
-- Power: PON, POFF (POFF pertahankan door, paksa Idle, req clear; PON nyala tanpa request)
-- Disaster: D, ND (tidak dimodelkan, hasil “-”)
+Format state lift:
+    L{Lift}{Posisi}-{Rq}-{Door}-{Load}-{Service}-{Power}-{Brake}
 
-Aturan state mustahil
-- Door O ⇒ Direction harus I
-- Load V ⇒ Direction harus I
-- Pwr OFF ⇒ Direction harus I
-- Svc OS ⇒ Direction harus I
+Komponen:
+- Lift    : A atau B
+- Posisi  : 1,2,3
+- Rq      : 3-bit (000..111), bit 1/2/3 = lantai 1/2/3
+- Door    : O (Open), C (Close)
+- Load    : N (Normal), V (Overload)
+- Service : IS (Inservice), OS (Out of Service)
+- Power   : PON, POFF
+- Brake   : BO (Brake On), BOFF (Brake Off)
 
-Perilaku gerak
-- Timer dari Idle + Req aktif: set arah U/D dengan door C (tidak teleport)
-- Langkah U/D: pintu selalu C; sampai lantai dengan bit aktif → Idle + pintu O + bit lantai itu dihapus
-- Guard batas: jika sudah di lantai teratas/terbawah saat U/D, paksa Idle + pintu C (tidak keluar rentang)
+SIGMA :
+    Call dari luar lift:
+        CU_1, CU_2, CD_2, CD_3
+    Request dari dalam lift:
+        F1_A, F2_A, F3_A, F1_B, F2_B, F3_B
+    Event lain (dipisah per lift):
+        ARR_A/ARR_B, OPN_A/OPN_B, CLD_A/CLD_B, TD_A/TD_B,
+        OV_A/OV_B, N_A/N_B, ERR_A/ERR_B, LI_A/LI_B, CUT_A/CUT_B,
+        SHUT_A/SHUT_B, START_A/START_B
 
-Output
-- NST.csv: tabel current_state × input → next_state / "-"
-- Transitions.csv: relasi (current_state, input, next_state) tanpa baris "-"
+Output:
+- NST.csv: tabel initial_state × input → next_state / "-"
+- Transitions.csv: relasi (initial_state, input, next_state) tanpa baris "-"
 """
 
 # ==================================================
@@ -44,11 +42,10 @@ Output
 # ==================================================
 
 FLOORS = [1, 2, 3]
-DIRECTIONS = ["I", "U", "D"]
 DOORS = ["O", "C"]
 LOADS = ["N", "V"]          # V = Overload
 SERVICE = ["IS", "OS"]      # OS = Out of Service
-POWER = ["ON", "OFF"]
+POWER = ["PON", "POFF"]
 
 # Brake
 # BO   = Brake On (lock)
@@ -61,41 +58,22 @@ REQUESTS = ["000", "001", "010", "011", "100", "101", "110", "111"]
 # 2. INPUT (SIGMA)
 # ==================================================
 
-INPUTS = [
-    # Hall Call (tidak masuk request, hanya buka pintu jika idle di lantai)
-    "CU_1", "CU_2",         # Call Up dari lantai 1, 2
-    "CD_2", "CD_3",         # Call Down dari lantai 2, 3
-    
-    # Car Call (masuk request per lift)
-    "F1_A", "F2_A", "F3_A", # Request lantai 1/2/3 untuk Lift A
-    "F1_B", "F2_B", "F3_B", # Request lantai 1/2/3 untuk Lift B
-    
-    # Door Control (per lift)
-    "O_A", "C_A",           # Open/Close door Lift A
-    "O_B", "C_B",           # Open/Close door Lift B
-    
-    # Load Sensor (per lift)
-    "OV_A", "N_A",          # Overload/Normal Lift A
-    "OV_B", "N_B",          # Overload/Normal Lift B
-    
-    # Timer (per lift) - memicu gerak jika ada request
-    "T_A", "T_B",
-    
-    # Error (per lift)
-    "ERR_A", "ERR_B",
-    
-    # Power (global)
-    "PON", "POFF",
-    
-    # Kabel Putus/Kendor (per lift) - aktifkan brake darurat
-    "CUT_A", "CUT_B",
-    
-    # Lift Diperbaiki (per lift) - lepas brake, kembali IS
-    "LI_A", "LI_B",
-    
-    # Disaster (tidak dimodelkan)
-    "D", "ND"
+HALL_CALLS = ["CU_1", "CU_2", "CD_2", "CD_3"]
+CAR_CALLS = [
+    "F1_A", "F2_A", "F3_A",
+    "F1_B", "F2_B", "F3_B",
 ]
+
+LIFT_EVENTS_BASE = [
+    "ARR",
+    "OPN", "CLD", "TD",
+    "OV", "N",
+    "ERR", "LI", "CUT",
+    "SHUT", "START",
+]
+LIFT_EVENTS = [f"{evt}_A" for evt in LIFT_EVENTS_BASE] + [f"{evt}_B" for evt in LIFT_EVENTS_BASE]
+
+INPUTS = HALL_CALLS + CAR_CALLS + LIFT_EVENTS
 
 # ==================================================
 # 3. UTILITAS REQUEST
@@ -135,66 +113,53 @@ def find_nearest_floor(current, targets):
 def format_lift_state(lift_id, state):
     """
     Format state lift menjadi string.
-    State tuple: (floor, dir, door, load, svc, pwr, req, brake)
-    Output: LAx-Door-Rq-Dir-Load-Service-Power-Brake
+    State tuple: (pos, rq, door, load, service, power, brake)
+    Output (sesuai spesifikasi):
+        L{Lift}{pos}-{Door}-{Rq}-{Load}-{Service}-{Power}-{Brake}
+
+    Contoh:
+        LA1-C-001-N-IS-ON-BOFF
     """
-    floor, direction, door, load, service, power, request, brake = state
-    return f"L{lift_id}{floor}-{door}-{request}-{direction}-{load}-{service}-{power}-{brake}"
+    pos, request, door, load, service, power, brake = state
+    power_out = "ON" if power == "PON" else "OFF"
+    return f"L{lift_id}{pos}-{door}-{request}-{load}-{service}-{power_out}-{brake}"
 
 def format_global_state(state_a, state_b):
     """Format state global dari kedua lift."""
     return f"{state_a} | {state_b}"
 
 # ==================================================
-# 5. VALIDASI STATE
+# 5. VALIDASI STATE (IMPOSSIBLE INITIAL STATE)
 # ==================================================
 
 def is_valid_lift_state(state):
     """
     Cek apakah state lift valid (bukan impossible state).
-    Returns True jika valid, False jika impossible.
+
+    Valid state (sesuai spesifikasi):
+    - Power OFF (POFF) -> Service harus OS dan Brake harus BO
+    - Service OS -> Brake harus BO
+    - Brake BO -> tidak ada request aktif (Rq harus 000)
+
+    Catatan:
+    - Door O dengan POFF diperbolehkan (SHUT: Door tetap).
+    - Guard/aturan input (mis. ARR) ditangani di level transisi.
     """
-    floor, direction, door, load, service, power, request, brake = state
-    
-    # ===== POWER OFF =====
-    # Power OFF → Direction harus Idle, Request harus 000, 
-    #             Service harus OS, Brake harus BO
-    if power == "OFF":
-        if direction != "I":    return False
-        if request != "000":    return False
-        if service != "OS":     return False
-        if brake != "BO":       return False
-    
-    # ===== SERVICE OS =====
-    # Service OS → Direction harus Idle, Request harus 000, Brake harus BO
-    if service == "OS":
-        if direction != "I":    return False
-        if request != "000":    return False
-        if brake != "BO":       return False
-    
-    # ===== BRAKE BO =====
-    # Brake BO → Direction harus Idle, Request harus 000, Service harus OS
-    if brake == "BO":
-        if direction != "I":    return False
-        if request != "000":    return False
-        if service != "OS":     return False
-    
-    # ===== DOOR OPEN =====
-    # Door Open → Direction harus Idle
-    if door == "O" and direction != "I":
+    pos, request, door, load, service, power, brake = state
+
+    # Power OFF constraint
+    if power == "POFF":
+        if service != "OS":
+            return False
+        if brake != "BO":
+            return False
+
+    # Service OS constraint
+    if service == "OS" and brake != "BO":
         return False
-    
-    # ===== LOAD OVERLOAD =====
-    # Load Overload → Direction harus Idle
-    if load == "V" and direction != "I":
-        return False
-    
-    # ===== DIRECTION BOUNDS =====
-    # Direction Up → Tidak boleh di lantai tertinggi
-    if direction == "U" and floor >= max(FLOORS):
-        return False
-    # Direction Down → Tidak boleh di lantai terendah
-    if direction == "D" and floor <= min(FLOORS):
+
+    # Brake ON constraint
+    if brake == "BO" and request != "000":
         return False
 
     return True
@@ -206,285 +171,239 @@ def is_valid_lift_state(state):
 def generate_all_lift_states():
     """Generate semua kombinasi state lift yang valid."""
     all_states = itertools.product(
-        FLOORS, DIRECTIONS, DOORS,
-        LOADS, SERVICE, POWER, REQUESTS, BRAKES
+        FLOORS,
+        REQUESTS,
+        DOORS,
+        LOADS,
+        SERVICE,
+        POWER,
+        BRAKES,
     )
-    return [s for s in all_states if is_valid_lift_state(s)]
+    states = [s for s in all_states if is_valid_lift_state(s)]
+
+    # Urutan state dibuat lebih mudah dibaca: kondisi normal tampil lebih dulu.
+    # Priority: Power ON, Service IS, Brake BOFF, Door C, Request 000, lalu posisi.
+    def _rank(s):
+        pos, request, door, load, service, power, brake = s
+        power_rank = 0 if power == "PON" else 1
+        service_rank = 0 if service == "IS" else 1
+        brake_rank = 0 if brake == "BOFF" else 1
+        door_rank = 0 if door == "C" else 1
+        request_rank = 0 if request == "000" else 1
+        load_rank = 0 if load == "N" else 1
+        return (power_rank, service_rank, brake_rank, door_rank, request_rank, load_rank, pos, request)
+
+    states.sort(key=_rank)
+    return states
 
 # ==================================================
 # 7. TRANSISI SATU LIFT
 # ==================================================
+
+def guard_g1(state):
+    """G1 = (Door=C) ∧ (Service=IS) ∧ (Power=PON) ∧ (Brake=BOFF)."""
+    pos, request, door, load, service, power, brake = state
+    return (door == "C") and (service == "IS") and (power == "PON") and (brake == "BOFF")
+
+
+def guard_g2(state):
+    """G2 = (Service=IS) ∧ (Power=PON) ∧ (Brake=BOFF)."""
+    pos, request, door, load, service, power, brake = state
+    return (service == "IS") and (power == "PON") and (brake == "BOFF")
+
+
+def _parse_hall_call(inp):
+    """Parse hall call (CU_1, CU_2, CD_2, CD_3) -> (direction, floor)."""
+    if not (inp.startswith("CU_") or inp.startswith("CD_")):
+        return None
+    parts = inp.split("_", 1)
+    if len(parts) != 2:
+        return None
+    direction = parts[0]
+    try:
+        floor = int(parts[1])
+    except ValueError:
+        return None
+    if direction not in ("CU", "CD"):
+        return None
+    if floor not in FLOORS:
+        return None
+    return direction, floor
+
+
+def _split_lift_suffix(inp):
+    """
+    Split input like 'F2_A' -> ('F2', 'A').
+    Returns (base, lift) or (inp, None) if no lift suffix.
+    """
+    if inp.endswith("_A"):
+        return inp[:-2], "A"
+    if inp.endswith("_B"):
+        return inp[:-2], "B"
+    return inp, None
 
 def compute_next_lift_state(state, inp, lift_id):
     """
     Hitung next state untuk satu lift berdasarkan input.
     
     Parameters:
-        state   : tuple (floor, dir, door, load, svc, pwr, req, brake)
+        state   : tuple (pos, rq, door, load, service, power, brake)
         inp     : string input
-        lift_id : "A" atau "B"
+        lift_id : "A" atau "B" (hanya untuk konsistensi API)
     
     Returns:
         next_state tuple atau None jika transisi invalid
     """
-    floor, direction, door, load, service, power, request, brake = state
+    pos, request, door, load, service, power, brake = state
 
-    # -------------------------
-    # CUT_A / CUT_B: Kabel kendor/putus
-    # Efek: Brake → BO, Dir → I, Rq → 000, Service → OS
-    # Power/Door/Load/Floor tetap
-    # -------------------------
-    if inp == f"CUT_{lift_id}":
-        return (floor, "I", door, load, "OS", power, "000", "BO")
-
-    # -------------------------
-    # LI_A / LI_B: Lift diperbaiki
-    # Syarat: Power = ON
-    # Efek (jika sedang rusak/OS): Brake → BOFF, Service → IS, Req → 000, Dir → I
-    # Catatan: jika sudah In Service, LI tidak mengubah state (no-op)
-    # -------------------------
-    if inp == f"LI_{lift_id}":
-        if power != "ON":
-            return None  # Tidak bisa perbaiki tanpa power
-
-        # Jika sudah In Service, tidak ada perubahan
-        if service == "IS":
-            return state
-
-        # Jika masih Out of Service (umumnya OS + BO), lakukan perbaikan
-        return (floor, "I", door, load, "IS", "ON", "000", "BOFF")
-
-    # -------------------------
-    # POFF: Power Off (global)
-    # Efek: Dir → I, Service → OS, Req → 000, Brake → BO
-    # -------------------------
-    if inp == "POFF":
-        return (floor, "I", door, load, "OS", "OFF", "000", "BO")
-
-    # -------------------------
-    # Power OFF → Hanya PON yang valid
-    # -------------------------
-    if power == "OFF":
-        if inp == "PON":
-            # Power ON kembali, tetap OS + Brake BO sampai LI
-            return (floor, "I", door, load, "OS", "ON", "000", "BO")
-        return None  # Semua input lain invalid saat Power OFF
-
-    # -------------------------
-    # BRAKE BO: Input operasional INVALID
-    # BO → CU/CD/F1/F2/F3/O/C/T semua invalid
-    # -------------------------
-    if brake == "BO":
-        # Hall calls
-        if inp.startswith("CU_") or inp.startswith("CD_"):
-            return None
-        # Car calls
-        if inp.startswith("F") and inp.endswith(f"_{lift_id}"):
-            return None
-        # Door control
-        if inp in (f"O_{lift_id}", f"C_{lift_id}"):
-            return None
-        # Timer
-        if inp == f"T_{lift_id}":
-            return None
-
-        # ERR tetap bisa diterima (sudah OS)
-        if inp == f"ERR_{lift_id}":
-            return (floor, "I", door, load, "OS", power, "000", "BO")
-        # Load sensor masih bisa
-        if inp == f"OV_{lift_id}":
-            return (floor, "I", door, "V", "OS", power, "000", "BO")
-        if inp == f"N_{lift_id}":
-            return (floor, "I", door, "N", "OS", power, "000", "BO")
+    # Pastikan initial state valid
+    if not is_valid_lift_state(state):
         return None
 
-    # -------------------------
-    # SERVICE OS: Semua input invalid
-    # (OS selalu Brake BO, jadi kasus ini jarang terpanggil)
-    # -------------------------
+    # ==================================================
+    # ATURAN A: POWER & SERVICE
+    # - Jika Power=POFF: semua input self-loop (state tetap), kecuali START.
+    # - Jika Service=OS: semua input self-loop, kecuali LI (hanya valid jika Power=PON).
+    # - Jika Brake=BO  : semua input self-loop, kecuali LI (jika Service=OS & Power=PON) atau START (jika Power=POFF).
+    # ==================================================
+    if power == "POFF":
+        if inp != "START":
+            return state
+        # START: Power -> PON, tidak otomatis IS (harus LI). Door tetap.
+        next_state = (pos, request, door, load, service, "PON", brake)
+        return next_state if is_valid_lift_state(next_state) else None
+
     if service == "OS":
-        return None
-
-    # -------------------------
-    # ERROR → langsung OS + Brake BO
-    # -------------------------
-    if inp == f"ERR_{lift_id}":
-        return (floor, "I", door, load, "OS", power, "000", "BO")
-
-    # -------------------------
-    # LOAD = Overload: Lift tidak boleh bergerak
-    # -------------------------
-    if load == "V":
-        # Timer tidak boleh memicu gerak saat Overload
-        if inp == f"T_{lift_id}":
-            return None
-        # Car call masih bisa diterima (menambah request)
-        if inp.startswith("F") and inp.endswith(f"_{lift_id}"):
-            target_floor = int(inp.split("_")[0][1:])
-            return (floor, "I", door, "V", service, power, set_request_bit(request, target_floor), brake)
-        # Door control
-        if inp == f"O_{lift_id}" and direction == "I":
-            return (floor, "I", "O", "V", service, power, request, brake)
-        if inp == f"C_{lift_id}" and direction == "I":
-            return (floor, "I", "C", "V", service, power, request, brake)
-        # Load change
-        if inp == f"N_{lift_id}":
-            return (floor, "I", door, "N", service, power, request, brake)
-        # Hall call: no-op kecuali memenuhi syarat buka pintu
-        if inp.startswith("CU_") or inp.startswith("CD_"):
-            call_floor = int(inp.split("_")[1])
-            if floor == call_floor and direction == "I" and door == "C" and service == "IS":
-                return (floor, "I", "O", "V", service, power, request, brake)
+        if inp != "LI":
             return state
+        # LI: hanya valid jika Power=PON
+        next_state = (pos, "000", door, load, "IS", power, "BOFF")
+        return next_state if is_valid_lift_state(next_state) else None
+
+    # Brake ON: input ditolak -> transisi invalid ('-')
+    # (Pengecualian START/LI sudah ditangani pada blok POFF/OS di atas.)
+    if brake == "BO":
         return None
 
     # -------------------------
-    # DOOR = Open: Lift tidak boleh pindah lantai
+    # 1) INPUT REQUEST
+    # Hall call:
+    # - CU_1, CU_2, CD_2, CD_3 -> set bit lantai asal hall call
+    # - Jika lift sudah berada di lantai asal: hanya membuka pintu, tidak menambah bit
+    # Car call:
+    # - F1/F2/F3 (dipanggil via F1_A/F1_B dari global) -> set bit lantai target
+    # - Jika lift sudah berada di lantai target: tidak mengubah bit
     # -------------------------
-    if door == "O":
-        # Timer tidak boleh memicu gerak saat pintu terbuka
-        if inp == f"T_{lift_id}":
-            return None
-        # Car call masih bisa
-        if inp.startswith("F") and inp.endswith(f"_{lift_id}"):
-            target_floor = int(inp.split("_")[0][1:])
-            return (floor, "I", "O", load, service, power, set_request_bit(request, target_floor), brake)
-        # Door control
-        if inp == f"C_{lift_id}" and direction == "I":
-            return (floor, "I", "C", load, service, power, request, brake)
-        # Load change
-        if inp == f"OV_{lift_id}":
-            return (floor, "I", "O", "V", service, power, request, brake)
-        if inp == f"N_{lift_id}":
-            return (floor, "I", "O", "N", service, power, request, brake)
-        # Hall call: pintu sudah terbuka → no-op
-        if inp.startswith("CU_") or inp.startswith("CD_"):
+    hall = _parse_hall_call(inp)
+    if hall is not None:
+        _, hall_floor = hall
+        if hall_floor == pos:
+            if not guard_g2(state):
+                return None
+            next_state = (pos, request, "O", load, service, power, brake)
+            return next_state if is_valid_lift_state(next_state) else None
+        next_state = (pos, set_request_bit(request, hall_floor), door, load, service, power, brake)
+        return next_state if is_valid_lift_state(next_state) else None
+
+    if inp in ("F1", "F2", "F3"):
+        target_floor = int(inp[1])
+        if target_floor == pos:
             return state
-        return None
+        next_state = (pos, set_request_bit(request, target_floor), door, load, service, power, brake)
+        return next_state if is_valid_lift_state(next_state) else None
 
     # -------------------------
-    # CAR CALL → SET REQUEST
+    # 2) ARR (ARRIVED)
+    # Guard:
+    # - G1 terpenuhi
+    # - Rq != 000
+    # Efek:
+    # - Posisi -> nearest requested floor (tie-break ke bawah)
+    # - Bit lantai tujuan dihapus
+    # - Door -> Open
     # -------------------------
-    if inp.startswith("F") and inp.endswith(f"_{lift_id}"):
-        target_floor = int(inp.split("_")[0][1:])
-        return (floor, direction, door, load, service, power, set_request_bit(request, target_floor), brake)
+    if inp == "ARR":
+        if request == "000":
+            return None
+        if not guard_g1(state):
+            return None
 
-    # -------------------------
-    # HALL CALL (tidak masuk request, hanya buka pintu jika Idle di lantai)
-    # -------------------------
-    if inp.startswith("CU_") or inp.startswith("CD_"):
-        call_floor = int(inp.split("_")[1])
-        # Buka pintu jika: di lantai yang sama, Idle, Door Closed, In Service
-        if floor == call_floor and direction == "I" and door == "C" and service == "IS":
-            return (floor, "I", "O", load, service, power, request, brake)
-        # Hall call tidak memicu gerak → no-op
-        return state
-
-    # -------------------------
-    # TIMER IDLE → PILIH REQUEST TERDEKAT
-    # -------------------------
-    if inp == f"T_{lift_id}":
-        # Syarat Timer valid:
-        if direction != "I":      return None  # Harus Idle
-        if request == "000":      return state  # Tidak ada request → tidak berubah
-        if door == "O":           return None  # Door harus tertutup
-        if brake != "BOFF":       return None  # Brake harus Off
-        if service != "IS":       return None  # Harus In Service
-        if power != "ON":         return None  # Power harus On
-        # (Load Overload sudah ditangani di atas)
-        
-        # Pilih lantai terdekat, tie-break ke bawah
-        target = find_nearest_floor(floor, get_active_floors(request))
+        target = find_nearest_floor(pos, get_active_floors(request))
         if target is None:
             return None
-        
-        # Jika sudah di lantai request, buka pintu dan hapus bit
-        if target == floor:
-            new_request = clear_request_bit(request, floor)
-            return (floor, "I", "O", load, service, power, new_request, brake)
-        
-        # Set arah naik
-        if target > floor:
-            if floor >= max(FLOORS):  # Sudah di lantai tertinggi
-                return None
-            return (floor, "U", "C", load, service, power, request, brake)
-        
-        # Set arah turun
-        if target < floor:
-            if floor <= min(FLOORS):  # Sudah di lantai terendah
-                return None
-            return (floor, "D", "C", load, service, power, request, brake)
-        
+
+        # Aturan Umum: ARR me-reset request menjadi 000
+        next_state = (target, "000", "O", load, service, power, brake)
+        return next_state if is_valid_lift_state(next_state) else None
+
+    # -------------------------
+    # 3) PINTU
+    # OPN : Door -> O
+    # CLD : Door -> C
+    # TD  : Door -> C (timer habis)
+    # -------------------------
+    if inp == "OPN":
+        if not guard_g2(state):
+            return None
+        next_state = (pos, request, "O", load, service, power, brake)
+        return next_state if is_valid_lift_state(next_state) else None
+
+    if inp == "CLD":
+        if not guard_g2(state):
+            return None
+        if door != "O":
+            return None
+        next_state = (pos, request, "C", load, service, power, brake)
+        return next_state if is_valid_lift_state(next_state) else None
+
+    if inp == "TD":
+        if door != "O":
+            return None
+        next_state = (pos, request, "C", load, service, power, brake)
+        return next_state if is_valid_lift_state(next_state) else None
+
+    # -------------------------
+    # 4) BEBAN
+    # OV : Load -> V
+    # N  : Load -> N
+    # -------------------------
+    if inp == "OV":
+        next_state = (pos, request, door, "V", service, power, brake)
+        return next_state if is_valid_lift_state(next_state) else None
+
+    if inp == "N":
+        next_state = (pos, request, door, "N", service, power, brake)
+        return next_state if is_valid_lift_state(next_state) else None
+
+    # -------------------------
+    # 5) ERROR, POWER, SAFETY
+    # CUT:
+    # - Brake=BO, Rq=000, Power tetap, Service tetap
+    # ERR:
+    # - Service=OS, Brake=BO, Rq=000
+    # SHUT:
+    # - Power=POFF, Service=OS, Brake=BO, Rq=000, Door tetap
+    # START:
+    # - hanya saat Power=POFF (ditangani di awal)
+    # LI:
+    # - hanya saat Service=OS dan Power=PON (ditangani di awal)
+    # -------------------------
+    if inp == "CUT":
+        next_state = (pos, "000", door, load, service, power, "BO")
+        return next_state if is_valid_lift_state(next_state) else None
+
+    if inp == "ERR":
+        next_state = (pos, "000", door, load, "OS", power, "BO")
+        return next_state if is_valid_lift_state(next_state) else None
+
+    if inp == "SHUT":
+        next_state = (pos, "000", door, load, "OS", "POFF", "BO")
+        return next_state if is_valid_lift_state(next_state) else None
+
+    # START dan LI sudah ditangani di awal, jadi di sini invalid
+    if inp in ("START", "LI"):
         return None
 
-    # -------------------------
-    # GERAK LIFT (Direction = U atau D)
-    # -------------------------
-    if direction == "U":
-        # Validasi: Brake BOFF, Service IS, Power ON, Door C
-        if brake == "BO":           return None
-        if service != "IS":         return None
-        if power != "ON":           return None
-        if door != "C":             return None
-        
-        # Naik 1 lantai
-        new_floor = floor + 1
-        
-        # Cek apakah sampai di lantai dengan request
-        if request[new_floor - 1] == "1":
-            new_request = clear_request_bit(request, new_floor)
-            return (new_floor, "I", "O", load, service, power, new_request, brake)
-        
-        # Jika sampai lantai tertinggi: Idle
-        if new_floor >= max(FLOORS):
-            return (new_floor, "I", "C", load, service, power, request, brake)
-        
-        # Lanjut naik
-        return (new_floor, "U", "C", load, service, power, request, brake)
-
-    if direction == "D":
-        # Validasi: Brake BOFF, Service IS, Power ON, Door C
-        if brake == "BO":           return None
-        if service != "IS":         return None
-        if power != "ON":           return None
-        if door != "C":             return None
-        
-        # Turun 1 lantai
-        new_floor = floor - 1
-        
-        # Cek apakah sampai di lantai dengan request
-        if request[new_floor - 1] == "1":
-            new_request = clear_request_bit(request, new_floor)
-            return (new_floor, "I", "O", load, service, power, new_request, brake)
-        
-        # Jika sampai lantai terendah: Idle
-        if new_floor <= min(FLOORS):
-            return (new_floor, "I", "C", load, service, power, request, brake)
-        
-        # Lanjut turun
-        return (new_floor, "D", "C", load, service, power, request, brake)
-
-    # -------------------------
-    # DOOR CONTROL (saat Idle)
-    # -------------------------
-    if inp == f"O_{lift_id}" and direction == "I":
-        return (floor, "I", "O", load, service, power, request, brake)
-
-    if inp == f"C_{lift_id}" and direction == "I":
-        return (floor, "I", "C", load, service, power, request, brake)
-
-    # -------------------------
-    # LOAD SENSOR
-    # -------------------------
-    if inp == f"OV_{lift_id}":
-        if direction != "I":  # Overload hanya valid saat Idle
-            return None
-        return (floor, "I", door, "V", service, power, request, brake)
-
-    if inp == f"N_{lift_id}":
-        return (floor, direction, door, "N", service, power, request, brake)
-
-    # Input tidak dikenali
     return None
 
 # ==================================================
@@ -498,34 +417,30 @@ def compute_next_global_state(state_a, state_b, inp):
     Returns:
         tuple (next_state_a, next_state_b) atau None jika invalid
     """
-    next_a, next_b = state_a, state_b
+    base, lift = _split_lift_suffix(inp)
 
-    # Input khusus Lift A (berakhiran _A)
-    if inp.endswith("_A"):
-        next_a = compute_next_lift_state(state_a, inp, "A")
-        if next_a is None:
+    # Input spesifik lift: hanya mempengaruhi lift terkait
+    if lift == "A":
+        next_a = compute_next_lift_state(state_a, base, "A")
+        if next_a is None or not is_valid_lift_state(next_a):
             return None
-        if not is_valid_lift_state(next_a):
-            return None
+        return (next_a, state_b)
 
-    # Input khusus Lift B (berakhiran _B)
-    elif inp.endswith("_B"):
-        next_b = compute_next_lift_state(state_b, inp, "B")
-        if next_b is None:
+    if lift == "B":
+        next_b = compute_next_lift_state(state_b, base, "B")
+        if next_b is None or not is_valid_lift_state(next_b):
             return None
-        if not is_valid_lift_state(next_b):
-            return None
+        return (state_a, next_b)
 
-    # Input global (PON, POFF, D, ND, Hall calls CU_*/CD_*)
-    else:
-        next_a = compute_next_lift_state(state_a, inp, "A")
-        next_b = compute_next_lift_state(state_b, inp, "B")
-        # Jika salah satu invalid, seluruh transisi invalid
-        if next_a is None or next_b is None:
-            return None
-        if not is_valid_lift_state(next_a) or not is_valid_lift_state(next_b):
-            return None
+    # Hall call: masuk ke memori request per lift (diterapkan ke A dan B)
+    next_a = compute_next_lift_state(state_a, inp, "A")
+    next_b = compute_next_lift_state(state_b, inp, "B")
 
+    # Jika compute_next_lift_state mengembalikan None, berarti input invalid.
+    if next_a is None or next_b is None:
+        return None
+    if not is_valid_lift_state(next_a) or not is_valid_lift_state(next_b):
+        return None
     return (next_a, next_b)
 
 # ==================================================
@@ -535,29 +450,29 @@ def compute_next_global_state(state_a, state_b, inp):
 def generate_nst():
     """Generate tabel next state untuk semua kombinasi state × input."""
     lift_states = generate_all_lift_states()
-    global_states = list(itertools.product(lift_states, lift_states))
+    global_states = itertools.product(lift_states, lift_states)
 
     nst = {}
 
     for state_a, state_b in global_states:
-        # Format current state
-        current_state_str = format_global_state(
+        # Format initial state
+        initial_state_str = format_global_state(
             format_lift_state("A", state_a),
             format_lift_state("B", state_b)
         )
-        nst[current_state_str] = {}
+        nst[initial_state_str] = {}
 
         for inp in INPUTS:
             result = compute_next_global_state(state_a, state_b, inp)
             if result is None:
-                nst[current_state_str][inp] = "-"
+                nst[initial_state_str][inp] = "-"
             else:
                 next_a, next_b = result
                 next_state_str = format_global_state(
                     format_lift_state("A", next_a),
                     format_lift_state("B", next_b)
                 )
-                nst[current_state_str][inp] = next_state_str
+                nst[initial_state_str][inp] = next_state_str
     return nst
 
 # ==================================================
@@ -568,7 +483,7 @@ def export_nst_csv(nst, filename="NST.csv"):
     """Export NST ke file CSV."""
     with open(filename, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow(["current_state"] + INPUTS)
+        writer.writerow(["initial_state"] + INPUTS)
         for state, transitions in nst.items():
             row = [state] + [transitions[inp] for inp in INPUTS]
             writer.writerow(row)
@@ -577,7 +492,7 @@ def export_transitions_csv(nst, filename="Transitions.csv"):
     """Export relasi transisi valid (tanpa '-') ke file CSV."""
     with open(filename, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow(["current_state", "input", "next_state"])
+        writer.writerow(["initial_state", "input", "next_state"])
         for state, transitions in nst.items():
             for inp, next_state in transitions.items():
                 if next_state != "-":
@@ -590,19 +505,50 @@ def export_transitions_csv(nst, filename="Transitions.csv"):
 if __name__ == "__main__":
     print("Generating FSA...")
     print()
-    
-    # Generate NST
-    nst = generate_nst()
-    
-    # Export to CSV
-    export_nst_csv(nst)
-    export_transitions_csv(nst)
-    
-    # Statistics
-    total_states = len(nst)
-    total_transitions = sum(1 for s in nst.values() for v in s.values() if v != "-")
-    total_invalid = sum(1 for s in nst.values() for v in s.values() if v == "-")
-    
+
+    # Streaming export (lebih cepat & hemat memory daripada menyimpan dict NST penuh)
+    lift_states = generate_all_lift_states()
+    global_states = itertools.product(lift_states, lift_states)
+
+    total_states = 0
+    total_transitions = 0
+    total_invalid = 0
+
+    with open("NST.csv", "w", newline="", encoding="utf-8") as nst_file, open(
+        "Transitions.csv", "w", newline="", encoding="utf-8"
+    ) as trans_file:
+        nst_writer = csv.writer(nst_file)
+        trans_writer = csv.writer(trans_file)
+
+        nst_writer.writerow(["initial_state"] + INPUTS)
+        trans_writer.writerow(["initial_state", "input", "next_state"])
+
+        for state_a, state_b in global_states:
+            total_states += 1
+
+            initial_state_str = format_global_state(
+                format_lift_state("A", state_a),
+                format_lift_state("B", state_b),
+            )
+
+            row = [initial_state_str]
+            for inp in INPUTS:
+                result = compute_next_global_state(state_a, state_b, inp)
+                if result is None:
+                    row.append("-")
+                    total_invalid += 1
+                else:
+                    next_a, next_b = result
+                    next_state_str = format_global_state(
+                        format_lift_state("A", next_a),
+                        format_lift_state("B", next_b),
+                    )
+                    row.append(next_state_str)
+                    trans_writer.writerow([initial_state_str, inp, next_state_str])
+                    total_transitions += 1
+
+            nst_writer.writerow(row)
+
     print(f"Total Global States  : {total_states}")
     print(f"Total Valid Transitions: {total_transitions}")
     print(f"Total Invalid ('-')  : {total_invalid}")
