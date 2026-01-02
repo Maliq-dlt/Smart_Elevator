@@ -36,16 +36,43 @@ INPUTS = [
 
 ## REQUEST LIFT
 
+# Definisi Fungsi
+# def set_request(req, lantai):
+# Mengatur request di lantai tertentu menjadi aktif (1)
+# Contoh: 
+# set_request("000", 2) -> "010"
+
+# Kamus Data Lokal
+# req : biner 3-bit, misal "101" artinya request di lantai 1 dan 3 aktif (String)
+# lantai : integer 1..3 (integer)
 def set_request(req, lantai):
     bits = list(req)
     bits[lantai - 1] = "1"
     return "".join(bits)
 
+# Definisi Fungsi
+# def clear_request(req, lantai):
+# Mengatur request di lantai tertentu menjadi nonaktif (0)
+# Contoh:
+# clear_request("111", 2) -> "101"
+
+# Kamus Data Lokal
+# req : biner 3-bit, misal "101" artinya request di lantai 1 dan 3 aktif (String)
+# lantai : integer 1..3 (integer)
 def clear_request(req, lantai):
     bits = list(req)
     bits[lantai - 1] = "0"
     return "".join(bits)
 
+# Definisi Fungsi
+# def get_lantai_aktif(req):
+# Mengambil daftar lantai yang request-nya aktif (bit = 1)
+# Contoh:
+# get_lantai_aktif("101") -> [1, 3]
+
+# Kamus Data Lokal
+# req : biner 3-bit (String)
+# hasil : daftar lantai yang aktif (List[int])
 def get_lantai_aktif(req):
     hasil = []
     i = 0
@@ -55,6 +82,17 @@ def get_lantai_aktif(req):
         i += 1
     return hasil
 
+# Definisi Fungsi
+# def get_lantai_terdekat(sekarang, daftar):
+# Mengambil lantai terdekat dari posisi sekarang berdasarkan daftar tujuan
+# Jika daftar kosong, mengembalikan None
+# Contoh:
+# get_lantai_terdekat(2, [1, 3]) -> 1 (atau 3; pada implementasi ini dipilih nilai min dari jarak, tie mengikuti urutan nilai)
+
+# Kamus Data Lokal
+# sekarang : posisi lantai saat ini (integer 1..3)
+# daftar : daftar lantai kandidat (List[int])
+# return : lantai terdekat (int) atau None
 def get_lantai_terdekat(sekarang, daftar):
     if not daftar:
         return None
@@ -62,6 +100,22 @@ def get_lantai_terdekat(sekarang, daftar):
 
 ## VALIDASI STATE LIFT
 
+# Definisi Fungsi
+# def state_lift_valid(state):
+# Memvalidasi apakah sebuah state lift memenuhi semua aturan/kendala sistem
+# Contoh:
+# state_lift_valid((1, "000", "C", "N", "IS", "PON", "BOFF")) -> True
+
+# Kamus Data Lokal
+# state : tuple (posisi, request, pintu, beban, layanan, listrik, rem)
+# posisi : integer 1..3
+# request : biner 3-bit (String)
+# pintu : "O" (Open) atau "C" (Close)
+# beban : "N" (Normal) atau "V" (Overload)
+# layanan : "IS" (In Service) atau "OS" (Out of Service)
+# listrik : "PON" atau "POFF"
+# rem : "BOFF" atau "BON"
+# return : True jika valid, False jika tidak valid
 def state_lift_valid(state):
     posisi, request, pintu, beban, layanan, listrik, rem = state
 
@@ -80,6 +134,16 @@ def state_lift_valid(state):
 
     return True
 
+# Definisi Fungsi
+# def format_state_lift(lift_id, state):
+# Memformat state 1 lift menjadi string keluaran (untuk CSV/visualisasi)
+# Contoh:
+# format_state_lift("A", (1, "010", "C", "N", "IS", "PON", "BOFF")) -> "LA1-C-010-N-IS-ON-BOFF"
+
+# Kamus Data Lokal
+# lift_id : identifier lift ("A" atau "B") (String)
+# state : tuple state lift (lihat state_lift_valid)
+# return : representasi string state lift
 def format_state_lift(lift_id, state):
     posisi, request, pintu, beban, layanan, listrik, rem = state
     if listrik == "PON":
@@ -88,11 +152,33 @@ def format_state_lift(lift_id, state):
         listrik_out = "OFF"
     return "L" + lift_id + str(posisi) + "-" + pintu + "-" + request + "-" + beban + "-" + layanan + "-" + listrik_out + "-" + rem
 
+# Definisi Fungsi
+# def format_state_global(state_lift_a, state_lift_b):
+# Menggabungkan format state lift A dan B menjadi satu string global
+# Contoh:
+# format_state_global(stateA, stateB) -> "LA... | LB..."
+
+# Kamus Data Lokal
+# state_lift_a : tuple state lift A
+# state_lift_b : tuple state lift B
+# return : string state global
 def format_state_global(state_lift_a, state_lift_b):
     return format_state_lift("A", state_lift_a) + " | " + format_state_lift("B", state_lift_b)
 
 ## SEMUA STATE LIFT
 
+# Definisi Fungsi
+# def get_semua_state_lift():
+# Menghasilkan semua kombinasi state lift yang valid (berdasarkan state_lift_valid)
+# dan mengurutkannya agar stabil untuk pembuatan tabel NST
+# Contoh:
+# states = get_semua_state_lift(); len(states) -> jumlah state valid (integer)
+
+# Kamus Data Lokal
+# hasil : daftar semua state lift valid (List[tuple])
+# state : tuple state lift
+# rank : fungsi lokal untuk pengurutan state
+# return : List[tuple] state lift valid
 def get_semua_state_lift():
     hasil = []
     for state in itertools.product(
@@ -122,6 +208,15 @@ def get_semua_state_lift():
 
 ## GUARD
 
+# Definisi Fungsi
+# def boleh_gerak(state):
+# Mengecek apakah lift boleh bergerak (pintu tertutup, in-service, listrik ON, rem off)
+# Contoh:
+# boleh_gerak((2, "010", "C", "N", "IS", "PON", "BOFF")) -> True
+
+# Kamus Data Lokal
+# state : tuple state lift
+# return : True jika boleh bergerak, False jika tidak
 def boleh_gerak(state):
     posisi, request, pintu, beban, layanan, listrik, rem = state
     return (
@@ -131,6 +226,15 @@ def boleh_gerak(state):
         rem == "BOFF"
     )
 
+# Definisi Fungsi
+# def boleh_operasi(state):
+# Mengecek apakah lift boleh melakukan operasi pintu/request (in-service, listrik ON, rem off)
+# Contoh:
+# boleh_operasi((1, "000", "O", "N", "IS", "PON", "BOFF")) -> True
+
+# Kamus Data Lokal
+# state : tuple state lift
+# return : True jika operasi diizinkan, False jika tidak
 def boleh_operasi(state):
     layanan = state[4]
     listrik = state[5]
@@ -139,6 +243,21 @@ def boleh_operasi(state):
 
 ## TRANSISI SATU LIFT
 
+# Definisi Fungsi
+# def get_next_state_lift(state, input_event):
+# Menghitung next state untuk SATU lift berdasarkan input_event (tanpa dispatcher dua lift)
+# Mengembalikan:
+# - tuple state baru jika transisi valid
+# - None jika input_event tidak valid/ditolak
+# - state yang sama (self-loop) untuk kondisi tertentu (misal POFF/OS/BON dengan input yang bukan pemulih)
+# Contoh:
+# get_next_state_lift((1, "000", "C", "N", "IS", "PON", "BOFF"), "F2") -> (1, "010", "C", "N", "IS", "PON", "BOFF")
+
+# Kamus Data Lokal
+# state : tuple state lift (posisi, request, pintu, beban, layanan, listrik, rem)
+# input_event : event dasar tanpa suffix lift (misal "F1", "ARR", "OPN", "CLD", "TD", "OV", "N", "ERR", "FIX", "CUT", "SHUT", "START", "CU_1", "CD_3") (String)
+# next_state : kandidat state berikutnya (tuple) atau None
+# return : tuple state berikutnya, state (self-loop), atau None
 def get_next_state_lift(state, input_event):
     posisi, request, pintu, beban, layanan, listrik, rem = state
 
@@ -280,6 +399,17 @@ def get_next_state_lift(state, input_event):
 
 ## TRANSISI DUA LIFT + DISPATCHER
 
+# Definisi Fungsi
+# def split_input(input_event):
+# Memecah input event global menjadi (event_dasar, lift_id)
+# lift_id bernilai "A"/"B" jika input berakhiran _A/_B, atau None jika event global
+# Contoh:
+# split_input("ARR_A") -> ("ARR", "A")
+# split_input("CU_2") -> ("CU_2", None)
+
+# Kamus Data Lokal
+# input_event : string input (misal "ARR_A", "OPN_B", "CU_1")
+# return : tuple (dasar, lift_id)
 def split_input(input_event):
     if input_event.endswith("_A"):
         return input_event[:-2], "A"
@@ -287,6 +417,16 @@ def split_input(input_event):
         return input_event[:-2], "B"
     return input_event, None
 
+# Definisi Fungsi
+# def eligible(state_lift):
+# Mengecek apakah sebuah lift eligible untuk menerima request eksternal (CU/CD) dari dispatcher
+# Syarat: in-service, listrik ON, rem off
+# Contoh:
+# eligible((1, "000", "C", "N", "IS", "PON", "BOFF")) -> True
+
+# Kamus Data Lokal
+# state_lift : tuple state lift
+# return : True jika eligible, False jika tidak
 def eligible(state_lift):
     return (
         state_lift[4] == "IS" and
@@ -294,6 +434,29 @@ def eligible(state_lift):
         state_lift[6] == "BOFF"
     )
 
+# Definisi Fungsi
+# def next_state_sistem(state_lift_a, state_lift_b, input):
+# Menghitung next state untuk SISTEM dua lift + dispatcher berdasarkan sebuah input
+# Aturan ringkas:
+# - Input berakhiran _A/_B hanya mempengaruhi lift tersebut
+# - Input CU_/CD_ (tanpa suffix) didispatch ke lift yang eligible dan paling dekat
+# Mengembalikan tuple (next_state_lift_a, next_state_lift_b) atau None jika transisi ditolak
+# Contoh:
+# next_state_sistem(stateA, stateB, "ARR_A") -> (nextA, stateB) atau None
+# next_state_sistem(stateA, stateB, "CU_2") -> (nextA, stateB) atau (stateA, nextB)
+
+# Kamus Data Lokal
+# state_lift_a : tuple state lift A
+# state_lift_b : tuple state lift B
+# input : string input dari daftar INPUTS (String)
+# dasar : event dasar hasil split_input (String)
+# lift_id : "A"/"B"/None (String/None)
+# eligible_a/b : status eligible untuk dispatcher (boolean)
+# posisi_a/b : posisi lift A/B (integer)
+# jarak_a/b : jarak lift ke lantai request (integer)
+# chosen : pilihan lift oleh dispatcher (List[String])
+# next_a/next_b : kandidat state lift A/B setelah transisi
+# return : tuple (next_a, next_b) atau None
 def next_state_sistem(state_lift_a, state_lift_b, input):
     dasar, lift_id = split_input(input)
 
