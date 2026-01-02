@@ -48,15 +48,17 @@ def clear_request(req, lantai):
 
 def get_lantai_aktif(req):
     hasil = []
-    for i in range(3):
-        if req[i] == "1":
+    i = 0
+    for ch in req:
+        if ch == "1":
             hasil.append(i + 1)
+        i += 1
     return hasil
 
 def get_lantai_terdekat(sekarang, daftar):
     if not daftar:
         return None
-    return sorted(daftar, key=lambda x: (abs(x - sekarang), x))[0]
+    return min(daftar, key=lambda x: abs(x - sekarang))
 
 ## VALIDASI STATE LIFT
 
@@ -312,13 +314,11 @@ def next_state_sistem(state_lift_a, state_lift_b, input):
 
         eligible_a = eligible(state_lift_a)
         eligible_b = eligible(state_lift_b)
-
-        if not eligible_a and not eligible_b:
+        if (not eligible_a) and (not eligible_b):
             return None
 
         posisi_a = state_lift_a[0]
         posisi_b = state_lift_b[0]
-
         jarak_a = abs(posisi_a - lantai)
         jarak_b = abs(posisi_b - lantai)
 
@@ -349,16 +349,17 @@ def next_state_sistem(state_lift_a, state_lift_b, input):
                     return False
                 next_a = cand
                 return True
-            cand = get_next_state_lift(state_lift_b, input)
-            if cand is None or (not state_lift_valid(cand)):
-                return False
-            next_b = cand
-            return True
+            else:
+                cand = get_next_state_lift(state_lift_b, input)
+                if cand is None or (not state_lift_valid(cand)):
+                    return False
+                next_b = cand
+                return True
 
         if chosen == ["A", "B"]:
             ok_a = apply("A")
             ok_b = apply("B")
-            if not ok_a and not ok_b:
+            if (not ok_a) and (not ok_b):
                 return None
             return (next_a, next_b)
 
