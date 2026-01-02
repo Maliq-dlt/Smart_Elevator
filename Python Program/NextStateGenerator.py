@@ -105,6 +105,7 @@ def get_lantai_terdekat(sekarang, daftar):
 # Memvalidasi apakah sebuah state lift memenuhi semua aturan/kendala sistem
 # Contoh:
 # state_lift_valid((1, "000", "C", "N", "IS", "PON", "BOFF")) -> True
+# state_lift_valid((2, "010", "C", "N", "IS", "PON", "BOFF")) -> False  (request lantai 2 masih aktif saat posisi 2)
 
 # Kamus Data Lokal
 # state : tuple (posisi, request, pintu, beban, layanan, listrik, rem)
@@ -156,7 +157,10 @@ def format_state_lift(lift_id, state):
 # def format_state_global(state_lift_a, state_lift_b):
 # Menggabungkan format state lift A dan B menjadi satu string global
 # Contoh:
-# format_state_global(stateA, stateB) -> "LA... | LB..."
+# format_state_global(
+#   (1, "000", "C", "N", "IS", "PON", "BOFF"),
+#   (3, "001", "O", "N", "IS", "PON", "BOFF")
+# ) -> "LA1-C-000-N-IS-ON-BOFF | LB3-O-001-N-IS-ON-BOFF"
 
 # Kamus Data Lokal
 # state_lift_a : tuple state lift A
@@ -172,7 +176,9 @@ def format_state_global(state_lift_a, state_lift_b):
 # Menghasilkan semua kombinasi state lift yang valid (berdasarkan state_lift_valid)
 # dan mengurutkannya agar stabil untuk pembuatan tabel NST
 # Contoh:
-# states = get_semua_state_lift(); len(states) -> jumlah state valid (integer)
+# states = get_semua_state_lift()
+# len(states) -> jumlah state valid (integer)
+# states[0] -> salah satu state valid (tuple)
 
 # Kamus Data Lokal
 # hasil : daftar semua state lift valid (List[tuple])
@@ -252,6 +258,8 @@ def boleh_operasi(state):
 # - state yang sama (self-loop) untuk kondisi tertentu (misal POFF/OS/BON dengan input yang bukan pemulih)
 # Contoh:
 # get_next_state_lift((1, "000", "C", "N", "IS", "PON", "BOFF"), "F2") -> (1, "010", "C", "N", "IS", "PON", "BOFF")
+# get_next_state_lift((2, "010", "C", "N", "IS", "PON", "BOFF"), "ARR") -> (2, "000", "O", "N", "IS", "PON", "BOFF")
+# get_next_state_lift((1, "000", "C", "N", "OS", "PON", "BON"), "OPN") -> (self-loop) state yang sama
 
 # Kamus Data Lokal
 # state : tuple state lift (posisi, request, pintu, beban, layanan, listrik, rem)
@@ -442,8 +450,10 @@ def eligible(state_lift):
 # - Input CU_/CD_ (tanpa suffix) didispatch ke lift yang eligible dan paling dekat
 # Mengembalikan tuple (next_state_lift_a, next_state_lift_b) atau None jika transisi ditolak
 # Contoh:
-# next_state_sistem(stateA, stateB, "ARR_A") -> (nextA, stateB) atau None
-# next_state_sistem(stateA, stateB, "CU_2") -> (nextA, stateB) atau (stateA, nextB)
+# sA = (1, "000", "C", "N", "IS", "PON", "BOFF")
+# sB = (3, "000", "C", "N", "IS", "PON", "BOFF")
+# next_state_sistem(sA, sB, "OPN_A") -> ((1, "000", "O", "N", "IS", "PON", "BOFF"), sB)
+# next_state_sistem(sA, sB, "CU_2") -> ((1, "010", "C", "N", "IS", "PON", "BOFF"), sB)  (dispatcher pilih A karena lebih dekat)
 
 # Kamus Data Lokal
 # state_lift_a : tuple state lift A
