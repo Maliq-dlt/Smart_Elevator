@@ -15,7 +15,7 @@ REQUEST_BINER = [
     "100", "101", "110", "111"
 ]
 
-## INPUT SISTEM
+## INPUT / EVENT SISTEM
 
 INPUTS = [
     "CU_1", "CU_2", "CD_2", "CD_3",
@@ -23,12 +23,12 @@ INPUTS = [
     "F1_A", "F2_A", "F3_A",
     "F1_B", "F2_B", "F3_B",
 
-    "ARR_A", "OPN_A", "CLD_A", "TD_A",
+    "ARR_A", "OPN_A", "CLD_A", "ACLD_A",
     "OV_A", "N_A",
     "ERR_A", "FIX_A", "CUT_A",
     "SHUT_A", "START_A",
 
-    "ARR_B", "OPN_B", "CLD_B", "TD_B",
+    "ARR_B", "OPN_B", "CLD_B", "ACLD_B",
     "OV_B", "N_B",
     "ERR_B", "FIX_B", "CUT_B",
     "SHUT_B", "START_B",
@@ -136,22 +136,18 @@ def state_lift_valid(state):
     return True
 
 # Definisi Fungsi
-# def format_state_lift(lift_id, state):
+# def format_state_lift(lift_unit, state):
 # Memformat state 1 lift menjadi string keluaran (untuk CSV/visualisasi)
 # Contoh:
 # format_state_lift("A", (1, "010", "C", "N", "IS", "PON", "BOFF")) -> "LA1-C-010-N-IS-ON-BOFF"
 
 # Kamus Data Lokal
-# lift_id : identifier lift ("A" atau "B") (String)
+# lift_unit : identifier lift ("A" atau "B") (String)
 # state : tuple state lift (lihat state_lift_valid)
 # return : representasi string state lift
-def format_state_lift(lift_id, state):
+def format_state_lift(lift_unit, state):
     posisi, request, pintu, beban, layanan, listrik, rem = state
-    if listrik == "PON":
-        listrik_out = "ON"
-    else:
-        listrik_out = "OFF"
-    return "L" + lift_id + str(posisi) + "-" + pintu + "-" + request + "-" + beban + "-" + layanan + "-" + listrik_out + "-" + rem
+    return "L" + lift_unit + str(posisi) + "-" + pintu + "-" + request + "-" + beban + "-" + layanan + "-" + listrik + "-" + rem
 
 # Definisi Fungsi
 # def format_state_global(state_lift_a, state_lift_b):
@@ -263,7 +259,7 @@ def boleh_operasi(state):
 
 # Kamus Data Lokal
 # state : tuple state lift (posisi, request, pintu, beban, layanan, listrik, rem)
-# input_event : event dasar tanpa suffix lift (misal "F1", "ARR", "OPN", "CLD", "TD", "OV", "N", "ERR", "FIX", "CUT", "SHUT", "START", "CU_1", "CD_3") (String)
+# input_event : event dasar tanpa suffix lift (misal "F1", "ARR", "OPN", "CLD", "ACLD", "OV", "N", "ERR", "FIX", "CUT", "SHUT", "START", "CU_1", "CD_3") (String)
 # next_state : kandidat state berikutnya (tuple) atau None
 # return : tuple state berikutnya, state (self-loop), atau None
 def get_next_state_lift(state, input_event):
@@ -298,7 +294,7 @@ def get_next_state_lift(state, input_event):
         return state
 
     # OVERLOAD: menolak aksi gerak/penutupan pintu
-    if beban == "V" and input_event in ("ARR", "CLD", "TD"):
+    if beban == "V" and input_event in ("ARR", "CLD", "ACLD"):
         return None
 
     if input_event.startswith("CU_") or input_event.startswith("CD_"):
@@ -362,7 +358,7 @@ def get_next_state_lift(state, input_event):
             return next_state
         return None
 
-    if input_event == "TD":
+    if input_event == "ACLD":
         if pintu != "O":
             return None
         next_state = (posisi, request, "C", beban, layanan, listrik, rem)
@@ -409,15 +405,15 @@ def get_next_state_lift(state, input_event):
 
 # Definisi Fungsi
 # def split_input(input_event):
-# Memecah input event global menjadi (event_dasar, lift_id)
-# lift_id bernilai "A"/"B" jika input berakhiran _A/_B, atau None jika event global
+# Memecah input event global menjadi (event_dasar, lift_unit)
+# lift_unit bernilai "A"/"B" jika input berakhiran _A/_B, atau None jika event global
 # Contoh:
 # split_input("ARR_A") -> ("ARR", "A")
 # split_input("CU_2") -> ("CU_2", None)
 
 # Kamus Data Lokal
 # input_event : string input (misal "ARR_A", "OPN_B", "CU_1")
-# return : tuple (dasar, lift_id)
+# return : tuple (dasar, lift_unit)
 def split_input(input_event):
     if input_event.endswith("_A"):
         return input_event[:-2], "A"
@@ -460,7 +456,7 @@ def eligible(state_lift):
 # state_lift_b : tuple state lift B
 # input : string input dari daftar INPUTS (String)
 # dasar : event dasar hasil split_input (String)
-# lift_id : "A"/"B"/None (String/None)
+# lift_unit : "A"/"B"/None (String/None)
 # eligible_a/b : status eligible untuk dispatcher (boolean)
 # posisi_a/b : posisi lift A/B (integer)
 # jarak_a/b : jarak lift ke lantai request (integer)
@@ -468,15 +464,15 @@ def eligible(state_lift):
 # next_a/next_b : kandidat state lift A/B setelah transisi
 # return : tuple (next_a, next_b) atau None
 def next_state_sistem(state_lift_a, state_lift_b, input):
-    dasar, lift_id = split_input(input)
+    dasar, lift_unit = split_input(input)
 
-    if lift_id == "A":
+    if lift_unit == "A":
         next_state_lift_a = get_next_state_lift(state_lift_a, dasar)
         if next_state_lift_a is None:
             return None
         return (next_state_lift_a, state_lift_b)
 
-    if lift_id == "B":
+    if lift_unit == "B":
         next_state_lift_b = get_next_state_lift(state_lift_b, dasar)
         if next_state_lift_b is None:
             return None

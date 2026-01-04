@@ -29,7 +29,7 @@ Yang dicek oleh script ini:
      - Guard G1 untuk input ARR: hanya boleh jika lift boleh bergerak
          (door=C, load=N, svc=IS, power=PON, brake=BOFF).
          Contoh salah: initial_state LA1-O-000-N-IS-ON-BOFF | ... lalu input=ARR.
-     - Guard G2 untuk input OPN/CLD/TD: hanya boleh jika (svc=IS, power=PON, brake=BOFF).
+    - Guard G2 untuk input OPN/CLD/ACLD: hanya boleh jika (svc=IS, power=PON, brake=BOFF).
          Contoh salah: initial_state ...-IS-ON-BON ... lalu input=OPN.
      - Isolasi input *_A / *_B:
          * Jika input diakhiri _A maka state Lift B tidak boleh berubah.
@@ -48,7 +48,6 @@ def parse_lift_state(token):
     try:
         body = token[2:]
         pos, door, req, load, svc, power, brake = body.split("-")
-        power = "PON" if power == "ON" else "POFF"
         return (int(pos), req, door, load, svc, power, brake)
     except Exception:
         return None
@@ -192,7 +191,7 @@ def check_transitions(filename="Transitions.csv"):
                 guard_errors.append((idx, init, inp, "ARR violates G1"))
 
             # Guard pintu
-            if inp in ("OPN", "CLD", "TD") and not guard_pintu(sa):
+            if inp in ("OPN", "CLD", "ACLD") and not guard_pintu(sa):
                 guard_errors.append((idx, init, inp, "Door violates G2"))
 
             # Isolasi _A / _B

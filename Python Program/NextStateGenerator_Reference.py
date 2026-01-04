@@ -28,7 +28,7 @@ SIGMA :
     Request dari dalam lift:
         F1_A, F2_A, F3_A, F1_B, F2_B, F3_B
     Event lain (dipisah per lift):
-        ARR_A/ARR_B, OPN_A/OPN_B, CLD_A/CLD_B, TD_A/TD_B,
+        ARR_A/ARR_B, OPN_A/OPN_B, CLD_A/CLD_B, ACLD_A/ACLD_B,
         OV_A/OV_B, N_A/N_B, ERR_A/ERR_B, FIX_A/FIX_B, CUT_A/CUT_B,
         SHUT_A/SHUT_B, START_A/START_B
 
@@ -66,7 +66,7 @@ CAR_CALLS = [
 
 LIFT_EVENTS_BASE = [
     "ARR",
-    "OPN", "CLD", "TD",
+    "OPN", "CLD", "ACLD",
     "OV", "N",
     "ERR", "FIX", "CUT",
     "SHUT", "START",
@@ -297,7 +297,7 @@ def compute_next_lift_state(state, inp, lift_id):
     # Overload:
     # - Menolak aksi yang merepresentasikan gerak/penutupan pintu.
     # - Request baru tetap boleh masuk (hall/call & car call).
-    if load == "V" and inp in ("ARR", "CLD", "TD"):
+    if load == "V" and inp in ("ARR", "CLD", "ACLD"):
         return None
 
     # -------------------------
@@ -356,7 +356,7 @@ def compute_next_lift_state(state, inp, lift_id):
     # 3) PINTU
     # OPN : Door -> O
     # CLD : Door -> C
-    # TD  : Door -> C (timer habis)
+    # ACLD: Door -> C (timer habis)
     # -------------------------
     if inp == "OPN":
         if not guard_g2(state):
@@ -364,15 +364,9 @@ def compute_next_lift_state(state, inp, lift_id):
         next_state = (pos, request, "O", load, service, power, brake)
         return next_state if is_valid_lift_state(next_state) else None
 
-    if inp == "CLD":
+    if inp == "ACLD":
         if not guard_g2(state):
             return None
-        if door != "O":
-            return None
-        next_state = (pos, request, "C", load, service, power, brake)
-        return next_state if is_valid_lift_state(next_state) else None
-
-    if inp == "TD":
         if door != "O":
             return None
         next_state = (pos, request, "C", load, service, power, brake)
