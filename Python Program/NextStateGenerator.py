@@ -18,20 +18,37 @@ REQUEST_BINER = [
 ## INPUT / EVENT SISTEM
 
 INPUTS = [
+    # Call dari luar lift
     "CU_1", "CU_2", "CD_2", "CD_3",
 
+    # Tombol dalam lift A (single input)
     "F1_A", "F2_A", "F3_A",
-    "F1_B", "F2_B", "F3_B",
+    # Tombol dalam lift A (multiple input)
+    "F1+F2_A", "F1+F3_A", "F2+F3_A", "F1+F2+F3_A",
 
+    # Tombol dalam lift B (single input)
+    "F1_B", "F2_B", "F3_B",
+    # Tombol dalam lift B (multiple input)
+    "F1+F2_B", "F1+F3_B", "F2+F3_B", "F1+F2+F3_B",
+
+    # Event pintu & gerak Lift A
     "ARR_A", "OPN_A", "CLD_A", "ACLD_A",
+    # Event beban & kerusakan Lift A
     "OV_A", "N_A",
     "ERR_A", "FIX_A", "CUT_A",
+    # Event listrik per lift A
     "SHUT_A", "START_A",
 
+    # Event pintu & gerak Lift B
     "ARR_B", "OPN_B", "CLD_B", "ACLD_B",
+    # Event beban & kerusakan Lift B
     "OV_B", "N_B",
     "ERR_B", "FIX_B", "CUT_B",
+    # Event listrik per lift B
     "SHUT_B", "START_B",
+
+    # Event listrik global (2 lift sekaligus)
+    "BLACKOUT", "POWERED",
 ]
 
 ## REQUEST LIFT
@@ -262,7 +279,7 @@ def boleh_operasi(state):
 
 # Kamus Data Lokal
 # state : tuple state lift (posisi, request, pintu, beban, layanan, listrik, rem)
-# input_event : event input_dasar tanpa suffix lift (misal "F1", "ARR", "OPN", "CLD", "ACLD", "OV", "N", "ERR", "FIX", "CUT", "SHUT", "START", "CU_1", "CD_3") (String)
+# input_event : event input_dasar tanpa suffix lift (misal "F1", "ARR", "OPN", "CLD", "ACLD", "OV", "N", "ERR", "FIX", "CUT", "SHUT", "START", "CU_1", "CD_3", "F1+F2", "F1+F3", "F2+F3", "F1+F2+F3") (String)
 # next_state : kandidat state berikutnya (tuple) atau None
 # return : tuple state berikutnya, state (self-loop), atau None
 def get_next_state_lift(state, input_event):
@@ -274,11 +291,10 @@ def get_next_state_lift(state, input_event):
     if listrik == "POFF":
         if input_event != "START":
             return state
-        next_state = (posisi, "000", pintu, beban, layanan, "PON", rem)
+        next_state = (posisi, "000", pintu, beban, "IS", "PON", "BOFF")
         if state_lift_valid(next_state):
             return next_state
         return None
-
 
     if layanan == "OS":
         if input_event != "FIX":
@@ -311,6 +327,26 @@ def get_next_state_lift(state, input_event):
 
         if next_state is None:
             return None
+        if state_lift_valid(next_state):
+            return next_state
+        return None
+
+    if "+" in input_event and input_event.startswith("F"):
+        parts = input_event.split("+")
+        lantai_list = []
+        for p in parts:
+            if p.startswith("F") and len(p) == 2 and p[1].isdigit():
+                lantai_list.append(int(p[1]))
+        
+        if not lantai_list:
+            return None
+        
+        new_request = request
+        for tujuan in lantai_list:
+            if tujuan != posisi:
+                new_request = set_request(new_request, tujuan)
+        
+        next_state = (posisi, new_request, pintu, beban, layanan, listrik, rem)
         if state_lift_valid(next_state):
             return next_state
         return None
@@ -441,7 +477,7 @@ def split_input(input_event):
 # Definisi Fungsi
 # def kondisi_lift_aman(state_lift):
 # Mengecek apakah sebuah lift kondisi_lift_aman untuk menerima request eksternal (CU/CD) dari dispatcher
-# Syarat: in-service, listrik ON, rem off
+# Syarat: in-service, listrik ON, rem off, tidak dalam kondisi error/cut
 # Contoh:
 # kondisi_lift_aman((1, "000", "C", "N", "IS", "PON", "BOFF")) -> True
 
@@ -449,10 +485,11 @@ def split_input(input_event):
 # state_lift : tuple state lift
 # return : True jika kondisi_aman, False jika tidak
 def kondisi_lift_aman(state_lift):
+    posisi, request, pintu, beban, layanan, listrik, rem = state_lift
     return (
-        state_lift[4] == "IS" and
-        state_lift[5] == "PON" and
-        state_lift[6] == "BOFF"
+        layanan == "IS" and
+        listrik == "PON" and
+        rem == "BOFF"
     )
 
 # Definisi Fungsi
@@ -461,12 +498,15 @@ def kondisi_lift_aman(state_lift):
 # Aturan ringkas:
 # - Input berakhiran _A/_B hanya mempengaruhi lift tersebut
 # - Input CU_/CD_ (tanpa suffix) didispatch ke lift yang kondisi_lift_aman dan paling dekat
+# - Input BLACKOUT mempengaruhi kedua lift (power off, brake on)
+# - Input POWERED mempengaruhi kedua lift (power on, brake off)
 # Mengembalikan tuple (next_state_lift_a, next_state_lift_b) atau None jika transisi ditolak
 # Contoh:
 # sA = (1, "000", "C", "N", "IS", "PON", "BOFF")
 # sB = (3, "000", "C", "N", "IS", "PON", "BOFF")
 # next_state_sistem(sA, sB, "OPN_A") -> ((1, "000", "O", "N", "IS", "PON", "BOFF"), sB)
 # next_state_sistem(sA, sB, "CU_2") -> ((1, "010", "C", "N", "IS", "PON", "BOFF"), sB)  (dispatcher pilih A karena lebih dekat)
+# next_state_sistem(sA, sB, "BLACKOUT") -> ((1, "000", "C", "N", "OS", "POFF", "BON"), (3, "000", "C", "N", "OS", "POFF", "BON"))
 
 # Kamus Data Lokal
 # state_lift_a : tuple state lift A
@@ -482,6 +522,34 @@ def kondisi_lift_aman(state_lift):
 # return : tuple (next_a, next_b) atau None
 def next_state_sistem(state_lift_a, state_lift_b, input):
     input_dasar, lift_unit = split_input(input)
+
+    if input == "BLACKOUT":
+        posisi_a, request_a, pintu_a, beban_a, layanan_a, listrik_a, rem_a = state_lift_a
+        posisi_b, request_b, pintu_b, beban_b, layanan_b, listrik_b, rem_b = state_lift_b
+        
+        # Kedua lift: Power OFF, Brake ON, Request reset, Service OS
+        next_a = (posisi_a, "000", pintu_a, beban_a, "OS", "POFF", "BON")
+        next_b = (posisi_b, "000", pintu_b, beban_b, "OS", "POFF", "BON")
+        
+        if state_lift_valid(next_a) and state_lift_valid(next_b):
+            return (next_a, next_b)
+        return None
+
+    if input == "POWERED":
+        posisi_a, request_a, pintu_a, beban_a, layanan_a, listrik_a, rem_a = state_lift_a
+        posisi_b, request_b, pintu_b, beban_b, layanan_b, listrik_b, rem_b = state_lift_b
+        
+        # Hanya bisa POWERED jika kedua lift sedang POFF
+        if listrik_a != "POFF" or listrik_b != "POFF":
+            return None
+        
+        # Kedua lift: Power ON, Brake OFF, Request reset, Service IS
+        next_a = (posisi_a, "000", pintu_a, beban_a, "IS", "PON", "BOFF")
+        next_b = (posisi_b, "000", pintu_b, beban_b, "IS", "PON", "BOFF")
+        
+        if state_lift_valid(next_a) and state_lift_valid(next_b):
+            return (next_a, next_b)
+        return None
 
     if lift_unit == "A":
         next_state_lift_a = get_next_state_lift(state_lift_a, input_dasar)
@@ -500,6 +568,8 @@ def next_state_sistem(state_lift_a, state_lift_b, input):
 
         kondisi_lift_aman_a = kondisi_lift_aman(state_lift_a)
         kondisi_lift_aman_b = kondisi_lift_aman(state_lift_b)
+        
+        # Jika tidak ada lift yang aman, tolak
         if (not kondisi_lift_aman_a) and (not kondisi_lift_aman_b):
             return None
 
@@ -508,20 +578,31 @@ def next_state_sistem(state_lift_a, state_lift_b, input):
         jarak_a = abs(posisi_a - lantai)
         jarak_b = abs(posisi_b - lantai)
 
+        # 1) Jika hanya satu lift aktif → lift itu yang melayani
+        # 2) Jika dua lift aktif → pilih yang jaraknya paling dekat
+        # 3) Jika jaraknya sama → pilih Lift A sebagai default
+        # 4) Jika kedua lift di lantai yang sama → pilih Lift A
+        
         chosen = []
         if kondisi_lift_aman_a and kondisi_lift_aman_b:
-            if jarak_a < jarak_b:
+            # Kedua lift aktif
+            if posisi_a == posisi_b:
+                # Aturan 4: Jika kedua lift di lantai sama → Lift A
+                chosen = ["A"]
+            elif jarak_a < jarak_b:
+                # Lift A lebih dekat
                 chosen = ["A"]
             elif jarak_b < jarak_a:
+                # Lift B lebih dekat
                 chosen = ["B"]
             else:
-                if posisi_a == posisi_b:
-                    chosen = ["A", "B"]
-                else:
-                    chosen = ["A"]
+                # Aturan 3: Jarak sama → Lift A default
+                chosen = ["A"]
         elif kondisi_lift_aman_a:
+            # Aturan 1: Hanya Lift A yang aktif
             chosen = ["A"]
         else:
+            # Aturan 1: Hanya Lift B yang aktif
             chosen = ["B"]
 
         next_a = state_lift_a
@@ -542,17 +623,12 @@ def next_state_sistem(state_lift_a, state_lift_b, input):
                 next_b = cand
                 return True
 
-        if chosen == ["A", "B"]:
-            ok_a = apply("A")
-            ok_b = apply("B")
-            if (not ok_a) and (not ok_b):
-                return None
-            return (next_a, next_b)
-
+        # Coba apply ke lift yang dipilih
         primary = chosen[0]
         if apply(primary):
             return (next_a, next_b)
 
+        # Jika gagal, coba lift lainnya (fallback)
         other = "B" if primary == "A" else "A"
         if (other == "A" and kondisi_lift_aman_a) or (other == "B" and kondisi_lift_aman_b):
             if apply(other):
@@ -565,6 +641,8 @@ def next_state_sistem(state_lift_a, state_lift_b, input):
 ## PROGRAM UTAMA
 
 def main():
+    print("Generating FSA...")
+    
     daftar_state_lift = get_semua_state_lift()
     kombinasi_state = itertools.product(daftar_state_lift, daftar_state_lift)
 
@@ -581,7 +659,10 @@ def main():
     total_transisi_valid = 0
     total_transisi_tidak_valid = 0
 
-    for state_lift_a, state_lift_b in kombinasi_state:
+    # Convert to list for counting
+    kombinasi_list = list(itertools.product(daftar_state_lift, daftar_state_lift))
+
+    for state_lift_a, state_lift_b in kombinasi_list:
         total_states += 1
         initial_state = format_state_global(state_lift_a, state_lift_b)
         row = [initial_state]
@@ -607,10 +688,11 @@ def main():
 
     file_nst.close()
     file_transisi.close()
-    print("NST.csv dan Transitions.csv berhasil dibuat")
-    print("Total States : " + str(total_states))
-    print("Total Transisi Valid : " + str(total_transisi_valid))
-    print("Total Transisi Tidak Valid : " + str(total_transisi_tidak_valid))
+    
+    print("Total Global States   : " + str(total_states))
+    print("Total Valid Transitions: " + str(total_transisi_valid))
+    print("Total Invalid ('-')   : " + str(total_transisi_tidak_valid))
+    print("NST.csv dan Transitions.csv berhasil dibuat.")
 
 if __name__ == "__main__":
     main()
