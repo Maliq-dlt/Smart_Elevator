@@ -1,9 +1,8 @@
 import itertools
 import csv
 
-## NOTASI STATE LIFT
-
 LANTAI_LIFT = [1, 2, 3]
+STATUS_DIR = ["Up", "Down", "None"]
 STATUS_PINTU = ["O", "C"]
 STATUS_BEBAN = ["N", "V"]
 STATUS_LAYANAN = ["IS", "OS"]
@@ -14,8 +13,6 @@ REQUEST_BINER = [
     "000", "001", "010", "011",
     "100", "101", "110", "111"
 ]
-
-## INPUT / EVENT SISTEM
 
 INPUTS = [
     # Call dari luar lift
@@ -50,8 +47,6 @@ INPUTS = [
     # Event listrik global (2 lift sekaligus)
     "BLACKOUT", "POWERED",
 ]
-
-## REQUEST LIFT
 
 # Definisi Fungsi
 # def set_request(req, lantai):
@@ -100,22 +95,110 @@ def get_lantai_aktif(req):
     return hasil
 
 # Definisi Fungsi
-# def get_lantai_terdekat(sekarang, daftar):
-# Mengambil lantai terdekat dari posisi sekarang berinput_dasarkan daftar tujuan
-# Jika daftar kosong, mengembalikan None
+# def ada_request_di_atas(posisi, request):
+# Mengecek apakah ada request aktif di lantai di atas posisi saat ini
 # Contoh:
-# get_lantai_terdekat(2, [1, 3]) -> 1 (atau 3; pada implementasi ini dipilih nilai min dari jarak, tie mengikuti urutan nilai)
+# ada_request_di_atas(1, "010") -> True
 
 # Kamus Data Lokal
-# sekarang : posisi lantai saat ini (integer 1..3)
-# daftar : daftar lantai kandidat (List[int])
-# return : lantai terdekat (int) atau None
-def get_lantai_terdekat(sekarang, daftar):
-    if not daftar:
-        return None
-    return min(daftar, key=lambda x: abs(x - sekarang))
+# posisi : integer 1..3 (integer)
+# request : biner 3-bit (String)
+# return : True jika ada request di atas, False jika tidak
+def ada_request_di_atas(posisi, request):
+    for lantai in range(posisi + 1, 4):
+        if request[lantai - 1] == "1":
+            return True
+    return False
 
-## VALIDASI STATE LIFT
+# Definisi Fungsi
+# def ada_request_di_bawah(posisi, request):
+# Mengecek apakah ada request aktif di lantai di bawah posisi saat ini
+# Contoh:
+# ada_request_di_bawah(3, "010") -> True
+
+# Kamus Data Lokal
+# posisi : integer 1..3 (integer)
+# request : biner 3-bit (String)
+# return : True jika ada request di bawah, False jika tidak
+def ada_request_di_bawah(posisi, request):
+    for lantai in range(1, posisi):
+        if request[lantai - 1] == "1":
+            return True
+    return False
+
+# Definisi Fungsi
+# def pilih_dir_awal(posisi, request):
+# Menentukan arah awal berdasarkan request yang ada (default Down jika atas dan bawah sama-sama ada)
+# Contoh:
+# pilih_dir_awal(2, "001") -> "Up"
+# pilih_dir_awal(2, "101") -> "Down"
+
+# Kamus Data Lokal
+# posisi : integer 1..3 (integer)
+# request : biner 3-bit (String)
+# return : "Up"/"Down"/"None" (String)
+def pilih_dir_awal(posisi, request):
+    if request == "000":
+        return "None"
+    atas = ada_request_di_atas(posisi, request)
+    bawah = ada_request_di_bawah(posisi, request)
+
+    if atas and not bawah:
+        return "Up"
+    if bawah and not atas:
+        return "Down"
+    return "Down"
+
+# Definisi Fungsi
+# def masih_ada_request_di_dir(posisi, dir, request):
+# Mengecek apakah masih ada request pada arah dir dari posisi saat ini
+# Contoh:
+# masih_ada_request_di_dir(2, "Up", "001") -> True
+
+# Kamus Data Lokal
+# posisi : integer 1..3 (integer)
+# dir : "Up"/"Down"/"None" (String)
+# request : biner 3-bit (String)
+# return : True jika masih ada request pada arah tsb, False jika tidak
+def masih_ada_request_di_dir(posisi, dir, request):
+    if request == "000":
+        return False
+    if dir == "Up":
+        return ada_request_di_atas(posisi, request)
+    if dir == "Down":
+        return ada_request_di_bawah(posisi, request)
+    return False
+
+# Definisi Fungsi
+# def normalisasi_dir(posisi, dir, request):
+# Menormalkan Dir agar konsisten dengan request (reset ke None jika request kosong, auto-balik jika arah habis)
+# Contoh:
+# normalisasi_dir(2, "None", "001") -> "Up"
+
+# Kamus Data Lokal
+# posisi : integer 1..3 (integer)
+# dir : "Up"/"Down"/"None" (String)
+# request : biner 3-bit (String)
+# return : Dir ter-normalisasi (String)
+def normalisasi_dir(posisi, dir, request):
+    if request == "000":
+        return "None"
+
+    if dir == "None":
+        return pilih_dir_awal(posisi, request)
+
+    if dir == "Up":
+        if (not ada_request_di_atas(posisi, request)) and ada_request_di_bawah(posisi, request):
+            return "Down"
+        return "Up"
+
+    if dir == "Down":
+        if (not ada_request_di_bawah(posisi, request)) and ada_request_di_atas(posisi, request):
+            return "Up"
+        return "Down"
+
+    return "None"
+
 
 # Definisi Fungsi
 # def state_lift_valid(state):
@@ -135,7 +218,18 @@ def get_lantai_terdekat(sekarang, daftar):
 # rem : "BOFF" atau "BON"
 # return : True jika valid, False jika tidak valid
 def state_lift_valid(state):
-    posisi, request, pintu, beban, layanan, listrik, rem = state
+    posisi, dir, request, pintu, beban, layanan, listrik, rem = state
+
+    if request == "000":
+        if dir != "None":
+            return False
+    else:
+        if dir == "None":
+            return False
+        if dir == "Up" and (not ada_request_di_atas(posisi, request)):
+            return False
+        if dir == "Down" and (not ada_request_di_bawah(posisi, request)):
+            return False
 
     if request[posisi - 1] == "1":
         return False
@@ -148,6 +242,9 @@ def state_lift_valid(state):
         return False
 
     if rem == "BON" and request != "000":
+        return False
+
+    if rem == "BON" and dir != "None":
         return False
     
     if beban == "V" and pintu != "O":
@@ -166,8 +263,8 @@ def state_lift_valid(state):
 # state : tuple state lift (lihat state_lift_valid)
 # return : representasi string state lift
 def format_state_lift(lift_unit, state):
-    posisi, request, pintu, beban, layanan, listrik, rem = state
-    return "L" + lift_unit + str(posisi) + "-" + pintu + "-" + request + "-" + beban + "-" + layanan + "-" + listrik + "-" + rem
+    posisi, dir, request, pintu, beban, layanan, listrik, rem = state
+    return "L" + lift_unit + str(posisi) + "-" + dir + "-" + pintu + "-" + request + "-" + beban + "-" + layanan + "-" + listrik + "-" + rem
 
 # Definisi Fungsi
 # def format_state_global(state_lift_a, state_lift_b):
@@ -185,7 +282,6 @@ def format_state_lift(lift_unit, state):
 def format_state_global(state_lift_a, state_lift_b):
     return format_state_lift("A", state_lift_a) + " | " + format_state_lift("B", state_lift_b)
 
-## SEMUA STATE LIFT
 
 # Definisi Fungsi
 # def get_semua_state_lift():
@@ -205,6 +301,7 @@ def get_semua_state_lift():
     hasil = []
     for state in itertools.product(
         LANTAI_LIFT,
+        STATUS_DIR,
         REQUEST_BINER,
         STATUS_PINTU,
         STATUS_BEBAN,
@@ -216,19 +313,19 @@ def get_semua_state_lift():
             hasil.append(state)
 
     def rank(state):
-        posisi, request, pintu, beban, layanan, listrik, rem = state
+        posisi, dir, request, pintu, beban, layanan, listrik, rem = state
         listrik_rank = 0 if listrik == "PON" else 1
         layanan_rank = 0 if layanan == "IS" else 1
         rem_rank = 0 if rem == "BOFF" else 1
         pintu_rank = 0 if pintu == "C" else 1
         request_rank = 0 if request == "000" else 1
         beban_rank = 0 if beban == "N" else 1
-        return (listrik_rank, layanan_rank, rem_rank, pintu_rank, request_rank, beban_rank, posisi, request)
+        dir_rank = 0 if dir == "None" else (1 if dir == "Down" else 2)
+        return (listrik_rank, layanan_rank, rem_rank, pintu_rank, request_rank, beban_rank, dir_rank, posisi, request)
 
     hasil.sort(key=rank)
     return hasil
 
-## GUARD
 
 # Definisi Fungsi
 # def boleh_gerak(state):
@@ -240,9 +337,10 @@ def get_semua_state_lift():
 # state : tuple state lift
 # return : True jika boleh bergerak, False jika tidak
 def boleh_gerak(state):
-    posisi, request, pintu, beban, layanan, listrik, rem = state
+    posisi, dir, request, pintu, beban, layanan, listrik, rem = state
     return (
         pintu == "C" and
+        beban == "N" and
         layanan == "IS" and
         listrik == "PON" and
         rem == "BOFF"
@@ -258,12 +356,11 @@ def boleh_gerak(state):
 # state : tuple state lift
 # return : True jika operasi diizinkan, False jika tidak
 def boleh_operasi(state):
-    layanan = state[4]
-    listrik = state[5]
-    rem = state[6]
+    layanan = state[5]
+    listrik = state[6]
+    rem = state[7]
     return layanan == "IS" and listrik == "PON" and rem == "BOFF"
 
-## TRANSISI SATU LIFT
 
 # Definisi Fungsi
 # def get_next_state_lift(state, input_event):
@@ -283,34 +380,34 @@ def boleh_operasi(state):
 # next_state : kandidat state berikutnya (tuple) atau None
 # return : tuple state berikutnya, state (self-loop), atau None
 def get_next_state_lift(state, input_event):
-    posisi, request, pintu, beban, layanan, listrik, rem = state
+    posisi, dir, request, pintu, beban, layanan, listrik, rem = state
 
     if not state_lift_valid(state):
         return None
 
     if listrik == "POFF":
         if input_event != "START":
-            return state
-        next_state = (posisi, "000", pintu, beban, "IS", "PON", "BOFF")
+            return None
+        next_state = (posisi, "None", "000", pintu, beban, "IS", "PON", "BOFF")
         if state_lift_valid(next_state):
             return next_state
         return None
 
     if layanan == "OS":
         if input_event != "FIX":
-            return state
-        next_state = (posisi, "000", pintu, beban, "IS", listrik, "BOFF")
+            return None
+        next_state = (posisi, "None", "000", pintu, beban, "IS", listrik, "BOFF")
         if state_lift_valid(next_state):
             return next_state
         return None
 
     if rem == "BON":
         if input_event == "FIX":
-            next_state = (posisi, "000", pintu, beban, "IS", listrik, "BOFF")
+            next_state = (posisi, "None", "000", pintu, beban, "IS", listrik, "BOFF")
             if state_lift_valid(next_state):
                 return next_state
             return None
-        return state
+        return None
 
     if beban == "V" and input_event in ("ARR", "CLD", "ACLD"):
         return None
@@ -319,11 +416,13 @@ def get_next_state_lift(state, input_event):
         lantai = int(input_event.split("_")[1])
         if lantai == posisi:
             if boleh_operasi(state):
-                next_state = (posisi, request, "O", beban, layanan, listrik, rem)
+                next_state = (posisi, dir, request, "O", beban, layanan, listrik, rem)
             else:
                 next_state = None
         else:
-            next_state = (posisi, set_request(request, lantai), pintu, beban, layanan, listrik, rem)
+            new_request = set_request(request, lantai)
+            new_dir = normalisasi_dir(posisi, dir, new_request)
+            next_state = (posisi, new_dir, new_request, pintu, beban, layanan, listrik, rem)
 
         if next_state is None:
             return None
@@ -345,8 +444,9 @@ def get_next_state_lift(state, input_event):
         for tujuan in lantai_list:
             if tujuan != posisi:
                 new_request = set_request(new_request, tujuan)
-        
-        next_state = (posisi, new_request, pintu, beban, layanan, listrik, rem)
+
+        new_dir = normalisasi_dir(posisi, dir, new_request)
+        next_state = (posisi, new_dir, new_request, pintu, beban, layanan, listrik, rem)
         if state_lift_valid(next_state):
             return next_state
         return None
@@ -354,7 +454,9 @@ def get_next_state_lift(state, input_event):
     if input_event in ("F1", "F2", "F3"):
         tujuan = int(input_event[1])
         if tujuan != posisi:
-            next_state = (posisi, set_request(request, tujuan), pintu, beban, layanan, listrik, rem)
+            new_request = set_request(request, tujuan)
+            new_dir = normalisasi_dir(posisi, dir, new_request)
+            next_state = (posisi, new_dir, new_request, pintu, beban, layanan, listrik, rem)
         else:
             next_state = state
 
@@ -363,25 +465,27 @@ def get_next_state_lift(state, input_event):
         return None
 
     if input_event == "ARR":
-        if not boleh_gerak(state) or request == "000":
+        if not boleh_gerak(state) or request == "000" or dir == "None":
             return None
 
-        daftar = get_lantai_aktif(request)
-        target = get_lantai_terdekat(posisi, daftar)
-        if target is None:
-            return None
-
-        if target > posisi:
+        if dir == "Up":
+            if posisi == 3:
+                return None
             next_pos = posisi + 1
-        elif target < posisi:
+        elif dir == "Down":
+            if posisi == 1:
+                return None
             next_pos = posisi - 1
         else:
             return None
 
-        if next_pos == target:
-            next_state = (next_pos, clear_request(request, next_pos), "O", beban, layanan, listrik, rem)
+        if request[next_pos - 1] == "1":
+            new_request = clear_request(request, next_pos)
+            new_dir = normalisasi_dir(next_pos, dir, new_request)
+            next_state = (next_pos, new_dir, new_request, "O", beban, layanan, listrik, rem)
         else:
-            next_state = (next_pos, request, "C", beban, layanan, listrik, rem)
+            new_dir = normalisasi_dir(next_pos, dir, request)
+            next_state = (next_pos, new_dir, request, "C", beban, layanan, listrik, rem)
 
         if state_lift_valid(next_state):
             return next_state
@@ -389,7 +493,7 @@ def get_next_state_lift(state, input_event):
 
     if input_event == "OPN":
         if boleh_operasi(state):
-            next_state = (posisi, request, "O", beban, layanan, listrik, rem)
+            next_state = (posisi, dir, request, "O", beban, layanan, listrik, rem)
         else:
             next_state = None
 
@@ -401,7 +505,7 @@ def get_next_state_lift(state, input_event):
 
     if input_event == "CLD":
         if boleh_operasi(state) and pintu == "O":
-            next_state = (posisi, request, "C", beban, layanan, listrik, rem)
+            next_state = (posisi, dir, request, "C", beban, layanan, listrik, rem)
         else:
             next_state = None
 
@@ -414,37 +518,37 @@ def get_next_state_lift(state, input_event):
     if input_event == "ACLD":
         if pintu != "O":
             return None
-        next_state = (posisi, request, "C", beban, layanan, listrik, rem)
+        next_state = (posisi, dir, request, "C", beban, layanan, listrik, rem)
         if state_lift_valid(next_state):
             return next_state
         return None
 
     if input_event == "OV":
-        next_state = (posisi, request, pintu, "V", layanan, listrik, rem)
+        next_state = (posisi, dir, request, pintu, "V", layanan, listrik, rem)
         if state_lift_valid(next_state):
             return next_state
         return None
 
     if input_event == "N":
-        next_state = (posisi, request, pintu, "N", layanan, listrik, rem)
+        next_state = (posisi, dir, request, pintu, "N", layanan, listrik, rem)
         if state_lift_valid(next_state):
             return next_state
         return None
 
     if input_event == "CUT":
-        next_state = (posisi, "000", pintu, beban, layanan, listrik, "BON")
+        next_state = (posisi, "None", "000", pintu, beban, layanan, listrik, "BON")
         if state_lift_valid(next_state):
             return next_state
         return None
 
     if input_event == "ERR":
-        next_state = (posisi, "000", pintu, beban, "OS", listrik, "BON")
+        next_state = (posisi, "None", "000", pintu, beban, "OS", listrik, "BON")
         if state_lift_valid(next_state):
             return next_state
         return None
 
     if input_event == "SHUT":
-        next_state = (posisi, "000", pintu, beban, "OS", "POFF", "BON")
+        next_state = (posisi, "None", "000", pintu, beban, "OS", "POFF", "BON")
         if state_lift_valid(next_state):
             return next_state
         return None
@@ -454,7 +558,6 @@ def get_next_state_lift(state, input_event):
 
     return None
 
-## TRANSISI DUA LIFT + DISPATCHER
 
 # Definisi Fungsi
 # def split_input(input_event):
@@ -485,7 +588,7 @@ def split_input(input_event):
 # state_lift : tuple state lift
 # return : True jika kondisi_aman, False jika tidak
 def kondisi_lift_aman(state_lift):
-    posisi, request, pintu, beban, layanan, listrik, rem = state_lift
+    posisi, dir, request, pintu, beban, layanan, listrik, rem = state_lift
     return (
         layanan == "IS" and
         listrik == "PON" and
@@ -517,35 +620,32 @@ def kondisi_lift_aman(state_lift):
 # kondisi_lift_aman_a/b : status kondisi_lift_aman untuk dispatcher (boolean)
 # posisi_a/b : posisi lift A/B (integer)
 # jarak_a/b : jarak lift ke lantai request (integer)
-# chosen : pilihan lift oleh dispatcher (List[String])
+# pilihan : pilihan lift oleh dispatcher (List[String])
 # next_a/next_b : kandidat state lift A/B setelah transisi
 # return : tuple (next_a, next_b) atau None
 def next_state_sistem(state_lift_a, state_lift_b, input):
     input_dasar, lift_unit = split_input(input)
 
     if input == "BLACKOUT":
-        posisi_a, request_a, pintu_a, beban_a, layanan_a, listrik_a, rem_a = state_lift_a
-        posisi_b, request_b, pintu_b, beban_b, layanan_b, listrik_b, rem_b = state_lift_b
+        posisi_a, dir_a, request_a, pintu_a, beban_a, layanan_a, listrik_a, rem_a = state_lift_a
+        posisi_b, dir_b, request_b, pintu_b, beban_b, layanan_b, listrik_b, rem_b = state_lift_b
         
-        # Kedua lift: Power OFF, Brake ON, Request reset, Service OS
-        next_a = (posisi_a, "000", pintu_a, beban_a, "OS", "POFF", "BON")
-        next_b = (posisi_b, "000", pintu_b, beban_b, "OS", "POFF", "BON")
+        next_a = (posisi_a, "None", "000", pintu_a, beban_a, "OS", "POFF", "BON")
+        next_b = (posisi_b, "None", "000", pintu_b, beban_b, "OS", "POFF", "BON")
         
         if state_lift_valid(next_a) and state_lift_valid(next_b):
             return (next_a, next_b)
         return None
 
     if input == "POWERED":
-        posisi_a, request_a, pintu_a, beban_a, layanan_a, listrik_a, rem_a = state_lift_a
-        posisi_b, request_b, pintu_b, beban_b, layanan_b, listrik_b, rem_b = state_lift_b
+        posisi_a, dir_a, request_a, pintu_a, beban_a, layanan_a, listrik_a, rem_a = state_lift_a
+        posisi_b, dir_b, request_b, pintu_b, beban_b, layanan_b, listrik_b, rem_b = state_lift_b
         
-        # Hanya bisa POWERED jika kedua lift sedang POFF
         if listrik_a != "POFF" or listrik_b != "POFF":
             return None
         
-        # Kedua lift: Power ON, Brake OFF, Request reset, Service IS
-        next_a = (posisi_a, "000", pintu_a, beban_a, "IS", "PON", "BOFF")
-        next_b = (posisi_b, "000", pintu_b, beban_b, "IS", "PON", "BOFF")
+        next_a = (posisi_a, "None", "000", pintu_a, beban_a, "IS", "PON", "BOFF")
+        next_b = (posisi_b, "None", "000", pintu_b, beban_b, "IS", "PON", "BOFF")
         
         if state_lift_valid(next_a) and state_lift_valid(next_b):
             return (next_a, next_b)
@@ -569,41 +669,51 @@ def next_state_sistem(state_lift_a, state_lift_b, input):
         kondisi_lift_aman_a = kondisi_lift_aman(state_lift_a)
         kondisi_lift_aman_b = kondisi_lift_aman(state_lift_b)
         
-        # Jika tidak ada lift yang aman, tolak
         if (not kondisi_lift_aman_a) and (not kondisi_lift_aman_b):
             return None
 
         posisi_a = state_lift_a[0]
         posisi_b = state_lift_b[0]
+        dir_a = state_lift_a[1]
+        dir_b = state_lift_b[1]
         jarak_a = abs(posisi_a - lantai)
         jarak_b = abs(posisi_b - lantai)
 
-        # 1) Jika hanya satu lift aktif → lift itu yang melayani
-        # 2) Jika dua lift aktif → pilih yang jaraknya paling dekat
-        # 3) Jika jaraknya sama → pilih Lift A sebagai default
-        # 4) Jika kedua lift di lantai yang sama → pilih Lift A
-        
-        chosen = []
-        if kondisi_lift_aman_a and kondisi_lift_aman_b:
-            # Kedua lift aktif
-            if posisi_a == posisi_b:
-                # Aturan 4: Jika kedua lift di lantai sama → Lift A
-                chosen = ["A"]
-            elif jarak_a < jarak_b:
-                # Lift A lebih dekat
-                chosen = ["A"]
-            elif jarak_b < jarak_a:
-                # Lift B lebih dekat
-                chosen = ["B"]
-            else:
-                # Aturan 3: Jarak sama → Lift A default
-                chosen = ["A"]
-        elif kondisi_lift_aman_a:
-            # Aturan 1: Hanya Lift A yang aktif
-            chosen = ["A"]
+        if lantai > posisi_a:
+            desired_a = "Up"
+        elif lantai < posisi_a:
+            desired_a = "Down"
         else:
-            # Aturan 1: Hanya Lift B yang aktif
-            chosen = ["B"]
+            desired_a = "None"
+
+        if lantai > posisi_b:
+            desired_b = "Up"
+        elif lantai < posisi_b:
+            desired_b = "Down"
+        else:
+            desired_b = "None"
+
+        def arah_cocok(dir_lift, desired):
+            if desired == "None":
+                return True
+            return dir_lift == desired or dir_lift == "None"
+
+        kandidat = []
+        if kondisi_lift_aman_a:
+            kandidat.append("A")
+        if kondisi_lift_aman_b:
+            kandidat.append("B")
+
+        def skor(which):
+            if which == "A":
+                cocok = 0 if arah_cocok(dir_a, desired_a) else 1
+                return (cocok, jarak_a, 0)
+            else:
+                cocok = 0 if arah_cocok(dir_b, desired_b) else 1
+                return (cocok, jarak_b, 1)
+
+        kandidat.sort(key=skor)
+        pilihan = [kandidat[0]]
 
         next_a = state_lift_a
         next_b = state_lift_b
@@ -623,12 +733,10 @@ def next_state_sistem(state_lift_a, state_lift_b, input):
                 next_b = cand
                 return True
 
-        # Coba apply ke lift yang dipilih
-        primary = chosen[0]
+        primary = pilihan[0]
         if apply(primary):
             return (next_a, next_b)
 
-        # Jika gagal, coba lift lainnya (fallback)
         other = "B" if primary == "A" else "A"
         if (other == "A" and kondisi_lift_aman_a) or (other == "B" and kondisi_lift_aman_b):
             if apply(other):
@@ -659,10 +767,7 @@ def main():
     total_transisi_valid = 0
     total_transisi_tidak_valid = 0
 
-    # Convert to list for counting
-    kombinasi_list = list(itertools.product(daftar_state_lift, daftar_state_lift))
-
-    for state_lift_a, state_lift_b in kombinasi_list:
+    for state_lift_a, state_lift_b in itertools.product(daftar_state_lift, daftar_state_lift):
         total_states += 1
         initial_state = format_state_global(state_lift_a, state_lift_b)
         row = [initial_state]

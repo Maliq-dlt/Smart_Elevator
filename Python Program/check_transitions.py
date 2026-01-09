@@ -3,8 +3,8 @@
 Yang dicek oleh script ini:
 
 1) Validasi format state (parser)
-     - Memecah token lift seperti: LA1-C-010-N-IS-ON-BOFF menjadi komponen
-         (pos, req, door, load, svc, power, brake).
+     - Memecah token lift seperti: LA1-Up-C-010-N-IS-PON-BOFF menjadi komponen
+         (pos, dir, req, door, load, svc, power, brake).
      - Memecah global state menjadi 2 lift: "<LiftA> | <LiftB>".
 
 2) Validasi state lift (aturan 'impossible state')
@@ -39,16 +39,68 @@ Yang dicek oleh script ini:
 
 import csv
 
+
+############################################################
+# UTIL INPUT / NORMALISASI
+############################################################
+
+def split_input(input_event: str):
+    """Return (base_event, unit) where unit is 'A'/'B'/None."""
+    if input_event.endswith("_A"):
+        return input_event[:-2], "A"
+    if input_event.endswith("_B"):
+        return input_event[:-2], "B"
+    return input_event, None
+
+
+def normalize_power(power: str) -> str:
+    # Support legacy tokens ON/OFF (if any) and new PON/POFF.
+    if power == "ON":
+        return "PON"
+    if power == "OFF":
+        return "POFF"
+    return power
+
+
+def ada_request_di_atas(pos: int, req: str) -> bool:
+    for lantai in range(pos + 1, 4):
+        if req[lantai - 1] == "1":
+            return True
+    return False
+
+
+def ada_request_di_bawah(pos: int, req: str) -> bool:
+    for lantai in range(1, pos):
+        if req[lantai - 1] == "1":
+            return True
+    return False
+
+
+def is_blackout_state(sa, sb) -> bool:
+    if sa is None or sb is None:
+        return False
+    _, dir_a, req_a, _, _, svc_a, power_a, brake_a = sa
+    _, dir_b, req_b, _, _, svc_b, power_b, brake_b = sb
+    power_a = normalize_power(power_a)
+    power_b = normalize_power(power_b)
+    return (
+        power_a == "POFF" and power_b == "POFF" and
+        svc_a == "OS" and svc_b == "OS" and
+        brake_a == "BON" and brake_b == "BON" and
+        req_a == "000" and req_b == "000" and
+        dir_a == "None" and dir_b == "None"
+    )
+
 ############################################################
 # PARSER STATE
 ############################################################
 
 def parse_lift_state(token):
-    # contoh: LA1-C-010-N-IS-ON-BOFF
+    # contoh: LA1-Up-C-010-N-IS-PON-BOFF
     try:
         body = token[2:]
-        pos, door, req, load, svc, power, brake = body.split("-")
-        return (int(pos), req, door, load, svc, power, brake)
+        pos, dir, door, req, load, svc, power, brake = body.split("-")
+        return (int(pos), dir, req, door, load, svc, power, brake)
     except Exception:
         return None
 
@@ -69,7 +121,19 @@ def state_lift_valid(state):
     if state is None:
         return False
 
-    pos, req, door, load, svc, power, brake = state
+    pos, dir, req, door, load, svc, power, brake = state
+    power = normalize_power(power)
+
+    if req == "000":
+        if dir != "None":
+            return False
+    else:
+        if dir == "None":
+            return False
+        if dir == "Up" and (not ada_request_di_atas(pos, req)):
+            return False
+        if dir == "Down" and (not ada_request_di_bawah(pos, req)):
+            return False
 
     # 1. Request aktif di lantai sendiri
     if req[pos - 1] == "1":
@@ -88,6 +152,12 @@ def state_lift_valid(state):
     if brake == "BON" and req != "000":
         return False
 
+    if brake == "BON" and dir != "None":
+        return False
+
+    if load == "V" and door != "O":
+        return False
+
     return True
 
 
@@ -96,7 +166,8 @@ def state_lift_valid(state):
 ############################################################
 
 def guard_gerak(state):
-    _, _, door, load, svc, power, brake = state
+    _, _, _, door, load, svc, power, brake = state
+    power = normalize_power(power)
     return (
         door == "C" and
         load == "N" and
@@ -107,7 +178,8 @@ def guard_gerak(state):
 
 
 def guard_pintu(state):
-    _, _, _, _, svc, power, brake = state
+    _, _, _, _, _, svc, power, brake = state
+    power = normalize_power(power)
     return svc == "IS" and power == "PON" and brake == "BOFF"
 
 
@@ -169,6 +241,8 @@ def check_transitions(filename="Transitions.csv"):
             inp = r["input"]
             nxt = r["next_state"]
 
+            base_inp, unit = split_input(inp)
+
             sa, sb = parse_global_state(init)
             na, nb = parse_global_state(nxt)
 
@@ -187,12 +261,18 @@ def check_transitions(filename="Transitions.csv"):
                 seen[key] = nxt
 
             # Guard ARR
-            if inp == "ARR" and not guard_gerak(sa):
-                guard_errors.append((idx, init, inp, "ARR violates G1"))
+            if base_inp == "ARR":
+                if unit == "A" and (not guard_gerak(sa)):
+                    guard_errors.append((idx, init, inp, "ARR_A violates G1"))
+                if unit == "B" and (not guard_gerak(sb)):
+                    guard_errors.append((idx, init, inp, "ARR_B violates G1"))
 
             # Guard pintu
-            if inp in ("OPN", "CLD", "ACLD") and not guard_pintu(sa):
-                guard_errors.append((idx, init, inp, "Door violates G2"))
+            if base_inp in ("OPN", "CLD", "ACLD"):
+                if unit == "A" and (not guard_pintu(sa)):
+                    guard_errors.append((idx, init, inp, f"{base_inp}_A violates G2"))
+                if unit == "B" and (not guard_pintu(sb)):
+                    guard_errors.append((idx, init, inp, f"{base_inp}_B violates G2"))
 
             # Isolasi _A / _B
             if inp.endswith("_A") and sb != nb:
