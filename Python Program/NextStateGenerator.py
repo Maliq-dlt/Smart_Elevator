@@ -794,7 +794,7 @@ def main():
     file_nst.close()
     file_transisi.close()
     
-    print("Total Global States   : " + str(total_states))
+    print("Total States   : " + str(total_states))
     print("Total Valid Transitions: " + str(total_transisi_valid))
     print("Total Invalid ('-')   : " + str(total_transisi_tidak_valid))
     print("NST.csv dan Transitions.csv berhasil dibuat.")
